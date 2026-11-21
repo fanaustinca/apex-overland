@@ -84,6 +84,18 @@ export class Props {
     }
     return o;
   }
+  /** Static collider matching a mesh's world placement (cylinder or box from its geometry parameters). */
+  private collide(o: THREE.Mesh) {
+    o.updateWorldMatrix(true, false);
+    const q = new THREE.Quaternion(), p = new THREE.Vector3(), sc = new THREE.Vector3(); o.matrixWorld.decompose(p, q, sc);
+    const g = o.geometry as THREE.BufferGeometry & { parameters?: Record<string, number> }, pr = g.parameters ?? {};
+    let d: RAPIER.ColliderDesc;
+    if (g.type === 'CylinderGeometry') d = RAPIER.ColliderDesc.cylinder(pr.height / 2 * sc.y, Math.max(pr.radiusTop, pr.radiusBottom) * sc.x);
+    else if (g.type === 'ConeGeometry') d = RAPIER.ColliderDesc.cone(pr.height / 2 * sc.y, pr.radius * sc.x);
+    else { g.computeBoundingBox(); const s3 = g.boundingBox!.getSize(new THREE.Vector3()).multiply(sc); d = RAPIER.ColliderDesc.cuboid(s3.x / 2, s3.y / 2, s3.z / 2); }
+    this.phys.world.createCollider(d.setTranslation(p.x, p.y, p.z).setRotation(q).setFriction(0.8).setCollisionGroups(groups(G.PROP, 0xffff)), this.body);
+    return o;
+  }
   private cylinder(r: number, h: number, m: THREE.Material, x: number, y: number, z: number, collide = true, seg = 16, parent: THREE.Object3D = this.group) {
     const o = this.add(new THREE.CylinderGeometry(r, r, h, seg), m, x, y, z, 0, parent);
     if (collide) this.phys.world.createCollider(RAPIER.ColliderDesc.cylinder(h / 2, r).setTranslation(x, y, z).setCollisionGroups(groups(G.PROP, 0xffff)), this.body);
@@ -94,6 +106,7 @@ export class Props {
   private bridges() {
     const M = this.mats;
     for (const b of this.w.bridges) {
+      if (b.style === 'beam' || b.style === 'timber') { this.riverBridge(b); continue; }
       const [ax, az] = b.a, [bx, bz] = b.b;
       const L = Math.hypot(bx - ax, bz - az), yaw = Math.atan2(bx - ax, bz - az);
       const seg = Math.ceil(L / 8);
@@ -122,7 +135,7 @@ export class Props {
           const top = (t: number) => b.ha + (b.hb - b.ha) * t + H;
           for (let i = 0; i <= seg; i++) {
             const t = i / seg, x = ax + (bx - ax) * t + ox, z = az + (bz - az) * t + oz, y = b.ha + (b.hb - b.ha) * t;
-            this.add(new THREE.BoxGeometry(0.35, H, 0.35), M.red, x, y + H / 2, z, yaw);
+            this.collide(this.add(new THREE.BoxGeometry(0.35, H, 0.35), M.red, x, y + H / 2, z, yaw));
             if (i < seg) {
               const t2 = (i + 1) / seg, x2 = ax + (bx - ax) * t2 + ox, z2 = az + (bz - az) * t2 + oz;
               const len = Math.hypot(L / seg, H);
@@ -142,7 +155,7 @@ export class Props {
           const hh = y - ground + 0.5;
           for (const side of [-1, 0.0, 1]) {
             const ox = Math.cos(yaw) * side * (b.width / 2 - 0.3), oz = -Math.sin(yaw) * side * (b.width / 2 - 0.3);
-            this.add(new THREE.BoxGeometry(0.3, hh, 0.3), M.wood, x + ox, ground + hh / 2 - 0.6, z + oz, yaw);
+            this.collide(this.add(new THREE.BoxGeometry(0.3, hh, 0.3), M.wood, x + ox, ground + hh / 2 - 0.6, z + oz, yaw));
           }
           for (let k = 0; k < hh / 4 - 1; k++) {
             const yy = ground + 2 + k * 4;
@@ -176,6 +189,47 @@ export class Props {
     }
   }
 
+  /** River crossings: a level deck that follows the road (curves included), rails, and piers down into the river bed. */
+  private riverBridge(b: World['bridges'][number]) {
+    const M = this.mats, pts = b.pts ?? [b.a, b.b], timber = b.style === 'timber';
+    const y = b.ha, floor = (b.floor ?? y - 6) - 1;
+    const deckMat = timber ? M.planks : M.concrete, railMat = timber ? M.wood : M.steel;
+    const step = 2;
+    for (let i = 0; i < pts.length - 1; i += step) {
+      const p = pts[i], q = pts[Math.min(pts.length - 1, i + step)];
+      const L = Math.hypot(q[0] - p[0], q[1] - p[1]); if (L < 0.5) continue;
+      const yaw = Math.atan2(q[0] - p[0], q[1] - p[1]), mx = (p[0] + q[0]) / 2, mz = (p[1] + q[1]) / 2;
+      const thick = timber ? 0.5 : 0.9;
+      this.solid(b.width, thick, L + 0.35, deckMat, mx, y - thick / 2 - 0.02, mz, yaw, 3);
+      // edge beams / kerbs and rails both sides
+      for (const side of [-1, 1]) {
+        const ox = Math.cos(yaw) * side * (b.width / 2 - 0.15), oz = -Math.sin(yaw) * side * (b.width / 2 - 0.15);
+        if (timber) { this.solid(0.22, 0.22, L + 0.35, railMat, mx + ox, y + 0.95, mz + oz, yaw, 2); this.add(new THREE.BoxGeometry(0.2, 1.05, 0.2), railMat, mx + ox, y + 0.5, mz + oz, yaw); }
+        else { this.solid(0.35, 0.35, L + 0.35, M.concrete, mx + ox, y + 0.15, mz + oz, yaw, 2); this.solid(0.12, 0.12, L + 0.35, railMat, mx + ox, y + 1.0, mz + oz, yaw, 2); this.add(new THREE.BoxGeometry(0.1, 0.9, 0.1), railMat, mx + ox, y + 0.55, mz + oz, yaw); }
+        if (!timber) this.add(new THREE.BoxGeometry(0.5, 1.2, L + 0.35), M.concrete, mx + Math.cos(yaw) * side * (b.width / 2 - 1.2), y - 1.4, mz - Math.sin(yaw) * side * (b.width / 2 - 1.2), yaw);
+      }
+    }
+    // piers stand on the channel banks only, so the valley floor and the water stay open underneath
+    const riv = this.w.rivers.find((r) => r.id !== 'canyon');
+    if (!riv) return;
+    const dRiv = (x: number, z: number) => { let m = 1e9; for (const p of riv.pts) { const d = (p[0] - x) ** 2 + (p[1] - z) ** 2; if (d < m) m = d; } return Math.sqrt(m); };
+    const thr = riv.width / 2 + 2.5;
+    let prev = dRiv(pts[0][0], pts[0][1]);
+    for (let i = 1; i < pts.length; i++) {
+      const d = dRiv(pts[i][0], pts[i][1]);
+      if ((prev - thr) * (d - thr) <= 0) {
+        const p = pts[i], q = pts[Math.min(pts.length - 1, i + 1)], o = pts[Math.max(0, i - 1)];
+        const yaw = Math.atan2(q[0] - o[0], q[1] - o[1]);
+        const g = Math.min(this.h(p[0], p[1]), floor + 1), hh = y - 0.9 - (g - 1.2);
+        if (hh > 1) {
+          if (timber) for (const side of [-1, 0, 1]) { const ox = Math.cos(yaw) * side * (b.width / 2 - 0.4), oz = -Math.sin(yaw) * side * (b.width / 2 - 0.4); this.cylinder(0.25, hh, M.wood, p[0] + ox, g - 1.2 + hh / 2, p[1] + oz, true, 8); }
+          else { this.solid(b.width * 0.75, hh, 1.4, M.concrete, p[0], g - 1.2 + hh / 2, p[1], yaw, 3); this.solid(b.width + 0.6, 0.7, 1.8, M.concrete, p[0], y - 1.25, p[1], yaw, 3); }
+        }
+      }
+      prev = d;
+    }
+  }
+
   // ---- garages ----
   private garages() {
     const M = this.mats;
@@ -185,7 +239,7 @@ export class Props {
       const W = gdef.main ? 34 : 16, D = gdef.main ? 20 : 12, H = gdef.main ? 9 : 6;
       const wall = gdef.main ? M.concrete : M.corr;
       // foundation pad
-      this.add(boxUV(W + 40, 1.2, D + 34, 4), M.concrete, 8, -0.45, 10, 0, g);
+      this.add(boxUV(W + 14, 1.2, D + 26, 4), M.concrete, 0, -0.45, 7, 0, g);
       // walls (front has roller doors)
       const parts: [number, number, number, number, number, number][] = [[W, H, 0.4, 0, H / 2, -D / 2], [0.4, H, D, -W / 2, H / 2, 0], [0.4, H, D, W / 2, H / 2, 0]];
       for (const [w, h, d, x, yy, z] of parts) this.add(boxUV(w, h, d, 3), wall, x, yy, z, 0, g);
@@ -193,8 +247,8 @@ export class Props {
       for (let i = 0; i < doors; i++) {
         const x = -W / 2 + 1 + dw * (i + 0.5);
         this.add(boxUV(dw - 1.4, 1.8, 0.3, 2), wall, x, H - 0.9, D / 2, 0, g);
-        this.add(boxUV(0.7, H, 0.5, 2), wall, x - dw / 2, H / 2, D / 2, 0, g);
-        if (i === doors - 1) this.add(boxUV(0.7, H, 0.5, 2), wall, x + dw / 2, H / 2, D / 2, 0, g);
+        this.collide(this.add(boxUV(0.7, H, 0.5, 2), wall, x - dw / 2, H / 2, D / 2, 0, g));
+        if (i === doors - 1) this.collide(this.add(boxUV(0.7, H, 0.5, 2), wall, x + dw / 2, H / 2, D / 2, 0, g));
         const door = this.add(boxUV(dw - 1.4, 1.2, 0.1, 1.2), M.plate, x, H - 2.4, D / 2 - 0.1, 0, g); void door;
       }
       // roof with overhang + sign
@@ -205,12 +259,13 @@ export class Props {
         this.add(new THREE.PlaneGeometry(16, 3.2), sm, 0, H + 2.2, D / 2 + 1.0, 0, g);
         this.add(boxUV(16.6, 3.6, 0.4, 2), M.dark, 0, H + 2.2, D / 2 + 0.75, 0, g);
         // fuel pumps + canopy + flag poles
-        for (const z of [-6, 0, 6]) { this.add(boxUV(0.6, 2.0, 1.0, 1), M.orange, W / 2 + 16, 1.0, D / 2 + 4 + z, 0, g); this.add(new THREE.CylinderGeometry(0.15, 0.15, 6.4, 8), M.steel, W / 2 + 16, 3.2, D / 2 + 4 + z, 0, g); }
+        for (const z of [-6, 0, 6]) { this.collide(this.add(boxUV(0.6, 2.0, 1.0, 1), M.orange, W / 2 + 16, 1.0, D / 2 + 4 + z, 0, g)); this.collide(this.add(new THREE.CylinderGeometry(0.15, 0.15, 6.4, 8), M.steel, W / 2 + 16, 3.2, D / 2 + 4 + z, 0, g)); }
         this.add(boxUV(8, 0.6, 20, 3), M.white, W / 2 + 16, 6.6, D / 2 + 4, 0, g);
-        for (const x of [-W / 2 - 4, W / 2 + 4]) { this.add(new THREE.CylinderGeometry(0.1, 0.12, 14, 8), M.steel, x, 7, D / 2 + 4, 0, g); this.add(new THREE.PlaneGeometry(3, 1.8), M.orange, x + 1.55, 12.8, D / 2 + 4, 0, g).material = new THREE.MeshStandardMaterial({ color: 0xff7a1a, side: THREE.DoubleSide }); }
+        for (const x of [-W / 2 - 4, W / 2 + 4]) { this.collide(this.add(new THREE.CylinderGeometry(0.1, 0.12, 14, 8), M.steel, x, 7, D / 2 + 4, 0, g)); this.add(new THREE.PlaneGeometry(3, 1.8), M.orange, x + 1.55, 12.8, D / 2 + 4, 0, g).material = new THREE.MeshStandardMaterial({ color: 0xff7a1a, side: THREE.DoubleSide }); }
         // car lifts + tyre stacks inside
         for (const x of [-10, 10]) { this.add(boxUV(4, 0.3, 6, 2), M.yellow, x, 1.8, 0, 0, g); for (const zz of [-2.5, 2.5]) this.add(new THREE.CylinderGeometry(0.2, 0.2, 1.8, 10), M.yellow, x - 1.8, 0.9, zz, 0, g); }
         for (let k = 0; k < 6; k++) this.add(new THREE.TorusGeometry(0.42, 0.2, 8, 18).rotateX(Math.PI / 2), M.dark, W / 2 - 2, 0.2 + k * 0.4, -D / 2 + 2, 0, g);
+        this.collide(this.add(new THREE.CylinderGeometry(0.62, 0.62, 2.4, 8), M.dark, W / 2 - 2, 1.2, -D / 2 + 2, 0, g)).visible = false;
         // showroom turntable in front
         const tt = this.add(new THREE.CylinderGeometry(7.5, 7.8, 0.3, 48), M.dark, 0, 0.15, D / 2 + 18, 0, g);
         const ring = this.add(new THREE.TorusGeometry(7.6, 0.08, 6, 64).rotateX(Math.PI / 2), M.emissive, 0, 0.31, D / 2 + 18, 0, g); void tt; void ring;
@@ -218,7 +273,7 @@ export class Props {
         const sign = signTexture('GARAGE', gdef.name.toUpperCase());
         const sm = new THREE.MeshStandardMaterial({ map: sign, emissive: 0xffffff, emissiveMap: sign, emissiveIntensity: 0.5 });
         this.add(new THREE.PlaneGeometry(8, 1.6), sm, 0, H + 1.2, D / 2 + 1.05, 0, g);
-        this.add(boxUV(4, 3, 3, 2), M.rust, -W / 2 - 3, 1.5, 2, 0, g);
+        this.collide(this.add(boxUV(4, 3, 3, 2), M.rust, -W / 2 - 3, 1.5, 2, 0, g));
       }
       // colliders for the building shell (world space)
       g.updateMatrixWorld(true);
@@ -240,23 +295,23 @@ export class Props {
     const cx = -900, cz = 230, cy = this.h(cx, cz);
     this.solid(14, 12, 10, M.corr, cx, cy + 6, cz, 0.3, 3);
     this.solid(6, 4, 6, M.rust, cx + 9, cy + 10, cz + 3, 0.3, 2);
-    for (let i = 0; i < 3; i++) this.add(new THREE.ConeGeometry(9 + i * 2, 8 + i, 18), M.gravel, cx - 25 + i * 18, cy + 4, cz + 28 - i * 6);
+    for (let i = 0; i < 3; i++) { const x = cx - 25 + i * 18, z = cz + 28 - i * 6, h = 8 + i; this.collide(this.add(new THREE.ConeGeometry(9 + i * 2, h, 18), M.gravel, x, this.h(x, z) + h / 2 - 0.6, z)); }
     // conveyors
     for (const [x0, z0, x1, z1, h0, h1] of [[cx + 5, cz + 6, cx - 22, cz + 30, 11, 7], [cx - 6, cz - 6, cx - 40, cz - 40, 9, 2]]) {
       const L = Math.hypot(x1 - x0, z1 - z0), yaw = Math.atan2(x1 - x0, z1 - z0), y0 = cy + h0, y1 = cy + h1;
       const belt = this.add(boxUV(1.6, 0.4, L, 2), M.rust, (x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2, yaw);
       belt.rotation.set(-Math.atan2(y1 - y0, L), yaw, 0, 'YXZ');
-      for (let k = 0.15; k < 1; k += 0.25) { const x = x0 + (x1 - x0) * k, z = z0 + (z1 - z0) * k, yy = y0 + (y1 - y0) * k; this.add(new THREE.BoxGeometry(0.3, yy - cy, 0.3), M.steel, x, (yy + cy) / 2, z, yaw); }
+      for (let k = 0.15; k < 1; k += 0.25) { const x = x0 + (x1 - x0) * k, z = z0 + (z1 - z0) * k, yy = y0 + (y1 - y0) * k, gy = this.h(x, z) - 0.3; this.collide(this.add(new THREE.BoxGeometry(0.3, yy - gy, 0.3), M.steel, x, (yy + gy) / 2, z, yaw)); }
     }
     // giant excavator on pit A's rim
     const ex = PITS[0].x + 140, ez = PITS[0].z - 260, ey = this.h(ex, ez);
     const exg = new THREE.Group(); exg.position.set(ex, ey, ez); exg.rotation.y = 2.2; this.group.add(exg);
-    for (const s of [-1, 1]) this.add(boxUV(2.4, 2.2, 11, 2), M.dark, s * 3.4, 1.1, 0, 0, exg);
+    for (const s of [-1, 1]) this.collide(this.add(boxUV(2.4, 2.2, 11, 2), M.dark, s * 3.4, 1.1, 0, 0, exg));
     this.add(boxUV(8, 4.5, 9, 2), M.yellow, 0, 4.6, -0.5, 0, exg);
     this.add(boxUV(3, 3, 3, 1), M.yellow, -2.2, 8.2, 2.6, 0, exg);
     const boom = this.add(boxUV(1.6, 1.6, 14, 2), M.yellow, 0, 9.5, 8, 0, exg); boom.rotation.x = -0.5;
     const arm = this.add(boxUV(1.2, 1.2, 9, 2), M.yellow, 0, 9.5, 17, 0, exg); arm.rotation.x = 0.9;
-    this.add(boxUV(4, 3, 3, 1), M.rust, 0, 4.5, 20, 0, exg);
+    this.collide(this.add(boxUV(4, 3, 3, 1), M.rust, 0, 4.5, 20, 0, exg));
     this.phys.world.createCollider(RAPIER.ColliderDesc.cuboid(4.6, 3.5, 6).setTranslation(ex, ey + 3.5, ez).setRotation({ x: 0, y: Math.sin(1.1), z: 0, w: Math.cos(1.1) }).setCollisionGroups(groups(G.PROP, 0xffff)), this.body);
     // crushable site trailers
     const spots: [number, number, number][] = [[-760, -140, 0.2], [-775, -110, 0.2], [-1015, 420, 1.2], [-860, 300, 0.5], [-640, -60, 1.5], [-905, -260, 0.0]];
@@ -307,7 +362,7 @@ export class Props {
     this.solid(12, 6, 8, M.darkPlanks, cx + 30, cy + 3, cz - 10, 0.4, 2);
     this.solid(13, 0.4, 9.5, M.corr, cx + 30, cy + 6.3, cz - 10, 0.4, 2);
     // stump field
-    for (let i = 0; i < 30; i++) { const a = i * 2.4, r = 20 + (i * 7) % 40; const x = cx + Math.cos(a) * r, z = cz + 20 + Math.sin(a) * r; this.add(new THREE.CylinderGeometry(0.35, 0.45, 0.6, 10), M.log, x, this.h(x, z) + 0.2, z); }
+    for (let i = 0; i < 30; i++) { const a = i * 2.4, r = 20 + (i * 7) % 40; const x = cx + Math.cos(a) * r, z = cz + 20 + Math.sin(a) * r; this.collide(this.add(new THREE.CylinderGeometry(0.35, 0.45, 0.6, 10), M.log, x, this.h(x, z) + 0.2, z)); }
     void cy;
   }
 
@@ -355,7 +410,7 @@ export class Props {
     ];
     for (const [x, z, a, b] of posts) {
       const y = this.h(x, z);
-      this.add(new THREE.CylinderGeometry(0.08, 0.08, 3.2, 8), M.steel, x, y + 1.6, z);
+      this.collide(this.add(new THREE.CylinderGeometry(0.08, 0.08, 3.2, 8), M.steel, x, y + 1.6, z));
       const t = signTexture(a, b, '#14532d', '#ffffff');
       this.add(new THREE.PlaneGeometry(3.2, 1.0), new THREE.MeshStandardMaterial({ map: t, side: THREE.DoubleSide, roughness: 0.5 }), x, y + 2.8, z, Math.atan2(-x, -z) + Math.PI);
     }
@@ -364,7 +419,7 @@ export class Props {
     const M = this.mats;
     for (const s of SPEED_TRAPS) {
       const y = this.h(s.x + s.r, s.z);
-      this.add(new THREE.CylinderGeometry(0.12, 0.12, 4.5, 8), M.steel, s.x + s.r, y + 2.25, s.z);
+      this.collide(this.add(new THREE.CylinderGeometry(0.12, 0.12, 4.5, 8), M.steel, s.x + s.r, y + 2.25, s.z));
       this.add(boxUV(0.8, 0.6, 0.6, 1), M.dark, s.x + s.r, y + 4.4, s.z);
       const t = signTexture('SPEED TRAP', s.name.toUpperCase(), '#ff7a1a', '#111');
       this.add(new THREE.PlaneGeometry(2.4, 0.8), new THREE.MeshStandardMaterial({ map: t, side: THREE.DoubleSide, emissive: 0xffffff, emissiveMap: t, emissiveIntensity: 0.25 }), s.x + s.r, y + 3.6, s.z, Math.PI / 2);

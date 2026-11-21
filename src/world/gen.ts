@@ -1,6 +1,6 @@
 // Procedural world generation. Pure data (no DOM / three) so it runs in a Web Worker and in node tools.
 import { Simplex, smoothstep, clamp, lerp } from '../core/noise';
-import { OFFROAD, NARROWS, N, V, CELL, HALF, CTRL, RIVERS, PITS, HUB, CANYON_X0, CANYON_X1, CANYON_FLOOR, CANYON_WATER, canyonZ, biomeWeights, hubFactor, type P2 } from './layout';
+import { WORLD, OFFROAD, PASSES, LAKES, type River, NARROWS, N, V, CELL, HALF, CTRL, RIVERS, PITS, HUB, CANYON_X0, CANYON_X1, CANYON_FLOOR, CANYON_WATER, canyonZ, biomeWeights, hubFactor, type P2 } from './layout';
 
 export const SEED = 1337;
 
@@ -9,7 +9,7 @@ export interface WorldData {
   biome: Float32Array;       // CTRL*CTRL*4 biome weights
   water: Float32Array;       // CTRL*CTRL water surface level (NaN = dry)
   wet: Uint8Array;           // CTRL*CTRL mud / wetness 0..255
-  rivers: { id: string; pts: P2[]; lvl: number[]; width: number; mud: boolean }[];
+  rivers: { id: string; pts: P2[]; lvl: number[]; width: number; mud: boolean; depth?: number }[];
 }
 
 const sx = new Simplex(SEED), s2 = new Simplex(SEED + 7), s3 = new Simplex(SEED + 21);
@@ -20,7 +20,7 @@ function terrace(t: number, steps: number, sharp = 0.3): number {
 }
 
 // corridor mask (8 m grid, blurred) along the off-road race lines: mesas give way to passes there
-const CM = 512;
+const CM = WORLD / 8;
 let corridor: Float32Array | null = null;
 function buildCorridor() {
   const m = new Float32Array(CM * CM);
@@ -46,7 +46,7 @@ export function desertH(x: number, z: number): number {
   let h = 36 + 5 * sx.fbm(x / 520, z / 520, 4);
   const field = smoothstep(0.0, 0.35, s2.fbm(x / 900 + 5, z / 900 - 2, 3));
   const u = (x * 0.83 + z * 0.55) / 44 + 2.4 * s2.fbm(x / 280, z / 280, 3);
-  const dune = Math.pow(1 - Math.abs(Math.sin(u)), 2.2);
+  const dune = 0.5 + 0.5 * Math.sin(u + 0.55 * Math.sin(u));   // rounded, slightly skewed rollers (no knife crests)
   h += field * (dune * 13 + 2.5 * s3.fbm(x / 60, z / 60, 2));
   const m = s3.fbm(x / 460 + 11, z / 460 - 3, 4);
   const plate = smoothstep(0.28, 0.33, m) * (1 - corridorAt(x, z));
@@ -88,10 +88,19 @@ export function quarryH(x: number, z: number): number {
 }
 
 /** Base terrain before roads: biome blend, hub valley, canyon, pits, rivers, border mountains. */
-export function generateBase(): WorldData {
-  const height = new Float32Array(V * V);
+export function generateBase(rows?: Float32Array): WorldData {
+  const height = rows ?? baseRows(0, V);
+  erode(height);
+  const data: WorldData = { height, biome: new Float32Array(0), water: new Float32Array(CTRL * CTRL).fill(NaN), wet: new Uint8Array(CTRL * CTRL), rivers: [] };
+  carveValleys(data);
+  return data;
+}
+
+/** Raw noise terrain for rows j0..j1-1 (pure function of position, so it can run on several workers at once). */
+export function baseRows(j0: number, j1: number): Float32Array {
+  const height = new Float32Array((j1 - j0) * V);
   const w = [0, 0, 0, 0];
-  for (let j = 0; j < V; j++) {
+  for (let j = j0; j < j1; j++) {
     const z = -HALF + j * CELL;
     for (let i = 0; i < V; i++) {
       const x = -HALF + i * CELL;
@@ -143,14 +152,12 @@ export function generateBase(): WorldData {
         }
       }
       // world border mountains
-      const e = smoothstep(1650, 2048, Math.max(Math.abs(x), Math.abs(z)));
+      const e = smoothstep(HALF - 420, HALF, Math.max(Math.abs(x), Math.abs(z)));
       if (e > 0) h += e * e * (150 + 90 * s2.fbm(x / 420, z / 420, 4)) + e * 25 * s3.ridged(x / 160, z / 160, 3);
-      height[j * V + i] = h;
+      height[(j - j0) * V + i] = h;
     }
   }
-  erode(height);
-  const data: WorldData = { height, biome: new Float32Array(CTRL * CTRL * 4), water: new Float32Array(CTRL * CTRL).fill(NaN), wet: new Uint8Array(CTRL * CTRL), rivers: [] };
-  return data;
+  return height;
 }
 
 /** Thermal slope limiting on mountains: knife-edge noise ridges relax to natural ~50 degree talus. */
@@ -160,7 +167,7 @@ function erode(h: Float32Array) {
   for (let j = 0; j < V; j += 1) for (let i = 0; i < V; i += 1) {
     const x = -HALF + i * CELL, z = -HALF + j * CELL;
     biomeWeights(x, z, 0, w);
-    const edge = Math.max(Math.abs(x), Math.abs(z)) > 1600;
+    const edge = Math.max(Math.abs(x), Math.abs(z)) > HALF - 450;
     mask[j * V + i] = w[2] > 0.25 || edge ? 1 : 0;
   }
   const T = CELL * Math.tan(50 * Math.PI / 180);
@@ -183,6 +190,13 @@ export function sampleH(height: Float32Array, x: number, z: number): number {
   const a = height[j * V + i], b = height[j * V + i + 1], c = height[(j + 1) * V + i], d = height[(j + 1) * V + i + 1];
   // match Rapier's heightfield triangulation (diagonal from (i+1,j) to (i,j+1))
   return u + v < 1 ? a + (b - a) * u + (c - a) * v : d + (c - d) * (1 - u) + (b - d) * (1 - v);
+}
+
+/** Nearest point on a densely sampled polyline (vertex distance only; fine for 4 m spacing). */
+export function distToPolylineFast(x: number, z: number, pts: P2[]): { d: number; i: number } {
+  let best = 1e18, bi = 0;
+  for (let i = 0; i < pts.length; i++) { const dx = pts[i][0] - x, dz = pts[i][1] - z, d = dx * dx + dz * dz; if (d < best) { best = d; bi = i; } }
+  return { d: Math.sqrt(best), i: bi };
 }
 
 /** Resample a polyline at a fixed spacing. */
@@ -219,29 +233,68 @@ export function spline(ctrl: P2[], step: number): P2[] {
   return resample(dense, step);
 }
 
-export function carveRivers(data: WorldData) {
-  const { height } = data;
-  for (const r of RIVERS) {
-    const pts = spline(r.pts, 4);
-    const n = pts.length;
-    const lvl = new Float32Array(n);
-    // water level: monotone downstream, a little below the local ground
-    let run = 1e9;
-    for (let i = 0; i < n; i++) {
-      let m = 1e9;
-      for (let k = -3; k <= 3; k++) { const p = pts[clamp(i + k, 0, n - 1)]; m = Math.min(m, sampleH(height, p[0], p[1])); }
-      run = Math.min(run, m - 1.0);
-      lvl[i] = run;
+/**
+ * Broad valleys: river valleys (monotone downstream, ending at a fixed level) and mountain passes. The floor follows a
+ * heavily smoothed terrain profile; beyond the floor the sides are cut at `slope` and dips are filled at 1:2, so the
+ * valley reads as a natural landform and everything in it is drivable.
+ */
+function carveValleys(data: WorldData) {
+  const all: { id: string; pts: P2[]; floor: number; slope: number; smooth: number; river?: River; endH?: number; maxH?: number; startH?: number }[] = [
+    ...RIVERS.map((r) => ({ id: r.id, pts: r.pts, floor: r.width / 2 + r.plain, slope: 0.32, smooth: 160, river: r, endH: r.endH, startH: r.startH })),
+    ...PASSES.map((p) => ({ id: p.id, pts: p.pts, floor: p.floor, slope: p.slope, smooth: p.smooth, maxH: p.maxH })),
+  ];
+  for (const v of all) {
+    const pts = spline(v.pts, 4), n = pts.length;
+    const raw = new Float32Array(n);
+    for (let i = 0; i < n; i++) { let m = 1e9; for (const [ox, oz] of [[0, 0], [12, 0], [-12, 0], [0, 12], [0, -12]]) m = Math.min(m, sampleH(data.height, pts[i][0] + ox, pts[i][1] + oz)); raw[i] = m; }
+    const R = Math.max(1, Math.round(v.smooth / 4));
+    let p = new Float32Array(n);
+    for (let i = 0; i < n; i++) { let s = 0, ws = 0; for (let k = -R * 2; k <= R * 2; k++) { const w = Math.exp(-(k * k) / (R * R)); s += raw[clamp(i + k, 0, n - 1)] * w; ws += w; } p[i] = s / ws; }
+    if (v.maxH !== undefined) for (let i = 0; i < n; i++) p[i] = Math.min(p[i], v.maxH);
+    if (v.river) {
+      if (v.startH !== undefined) p[0] = v.startH;
+      for (let i = 1; i < n; i++) p[i] = Math.min(p[i], p[i - 1] - 0.004);          // always flows downhill
+      if (v.endH !== undefined) {                                                   // ease into the outlet level over the last 700 m
+        const L = Math.min(n - 1, 175), e0 = n - 1 - L, h0 = p[e0];
+        for (let i = e0; i < n; i++) { const t = (i - e0) / L; p[i] = Math.min(p[i], h0 + (v.endH - h0) * t * t * (3 - 2 * t)); }
+      }
+      // relax so the gradient is even rather than stepped
+      for (let pass = 0; pass < 40; pass++) for (let i = 1; i < n - 1; i++) p[i] = Math.min(p[i], (p[i - 1] + p[i] * 2 + p[i + 1]) / 4);
     }
-    // ease the steps so the surface reads as a flowing slope
-    for (let pass = 0; pass < 6; pass++) for (let i = 1; i < n - 1; i++) lvl[i] = Math.min(lvl[i], (lvl[i - 1] + lvl[i] + lvl[i + 1]) / 3 + 0.02);
-    data.rivers.push({ id: r.id, pts, lvl: Array.from(lvl), width: r.width, mud: r.mud });
-    const half = r.width / 2, bank = 16;
-    carveAlong(data, pts, (i, u) => lvl[i] + (lvl[Math.min(i + 1, n - 1)] - lvl[i]) * u, half, bank, (d, t, level) => {
-      const deep = r.depth * (0.55 + 1.0 * smoothstep(0.72, 0.95, Math.sin(t / 110 + 1)));
-      if (d < half) return level - deep * (1 - (d / half) ** 2) - 0.15;
+    const prof = p;
+    carveAlong(data, pts, (i, u) => prof[i] + (prof[Math.min(i + 1, n - 1)] - prof[i]) * u, v.floor, 240, (d, _t, c, h0) => {
+      const o = Math.max(0, d - v.floor);
+      return clamp(h0, c - o * 0.5, c + o * v.slope);
+    });
+    if (v.river) {
+      const r = v.river;
+      data.rivers.push({ id: r.id, pts, lvl: Array.from(prof, (h) => h - 0.45), width: r.width, mud: r.mud, depth: r.depth });
+      p = new Float32Array(0);
+    }
+  }
+  for (const l of LAKES) {
+    const R = l.r + 320;
+    for (let j = Math.max(0, Math.floor((l.z - R + HALF) / CELL)); j <= Math.min(N, Math.ceil((l.z + R + HALF) / CELL)); j++)
+      for (let i = Math.max(0, Math.floor((l.x - R + HALF) / CELL)); i <= Math.min(N, Math.ceil((l.x + R + HALF) / CELL)); i++) {
+        const x = -HALF + i * CELL, z = -HALF + j * CELL, d = Math.hypot(x - l.x, z - l.z), k = j * V + i;
+        if (d > R) continue;
+        const o = Math.max(0, d - l.r);
+        data.height[k] = d < l.r ? l.h : clamp(data.height[k], l.h - o * 0.5, l.h + 0.1 + o * (0.12 + 0.6 * smoothstep(0, 60, o)));
+      }
+  }
+}
+
+/** Cut the wet channels into the valley floors (after roads, which bridge them). */
+export function carveRivers(data: WorldData) {
+  for (const r of data.rivers) {
+    if (r.id === 'canyon') continue;
+    const pts = r.pts, n = pts.length, lvl = r.lvl;
+    const half = r.width / 2;
+    carveAlong(data, pts, (i, u) => lvl[i] + (lvl[Math.min(i + 1, n - 1)] - lvl[i]) * u, half, 5, (d, t, level) => {
+      const deep = (r.depth ?? 1) * (0.5 + 0.9 * smoothstep(0.72, 0.95, Math.sin(t / 110 + 1)));
+      if (d < half) return level - deep * (1 - (d / half) ** 2) - 0.12;
       return null;
-    }, true, r.mud);
+    }, true, r.mud, true);
   }
   // canyon river: flat-ish level on the canyon floor
   { const pts: P2[] = []; for (let x = CANYON_X0 + 200; x <= CANYON_X1 - 200; x += 6) pts.push([x, canyonZ(x)]); data.rivers.push({ id: 'canyon', pts, lvl: pts.map(() => CANYON_WATER), width: 20, mud: false }); }
@@ -259,7 +312,7 @@ export function carveRivers(data: WorldData) {
  * shoulder blend. Cells beyond `half` blend back to the terrain over `bank` metres.
  */
 export function carveAlong(data: WorldData, pts: P2[], centre: (i: number, u: number) => number, half: number, bank: number,
-  profile: (d: number, t: number, c: number) => number | null, water = false, mud = false, onlyLower = false) {
+  profile: (d: number, t: number, c: number, h0: number) => number | null, water = false, mud = false, onlyLower = false, skip?: Uint8Array, core?: { h: Float32Array; r: number }) {
   const { height } = data;
   const reach = half + bank;
   // accumulate per cell the nearest-sample distance so overlapping segments resolve cleanly
@@ -271,7 +324,7 @@ export function carveAlong(data: WorldData, pts: P2[], centre: (i: number, u: nu
   const i0 = Math.max(0, Math.floor((minX - reach + HALF) / CELL)), i1 = Math.min(N, Math.ceil((maxX + reach + HALF) / CELL));
   const j0 = Math.max(0, Math.floor((minZ - reach + HALF) / CELL)), j1 = Math.min(N, Math.ceil((maxZ + reach + HALF) / CELL));
   const W = i1 - i0 + 1, H = j1 - j0 + 1;
-  const bestD = new Float32Array(W * H).fill(1e9), bestT = new Float32Array(W * H), bestC = new Float32Array(W * H);
+  const bestD = new Float32Array(W * H).fill(1e9), bestT = new Float32Array(W * H), bestC = new Float32Array(W * H), bestS = new Uint8Array(skip ? W * H : 0);
   for (let s = 0; s < n - 1; s++) {
     const [ax, az] = pts[s], [bx, bz] = pts[s + 1];
     const dx = bx - ax, dz = bz - az, L2 = dx * dx + dz * dz || 1;
@@ -284,19 +337,21 @@ export function carveAlong(data: WorldData, pts: P2[], centre: (i: number, u: nu
         let u = ((x - ax) * dx + (z - az) * dz) / L2; u = u < 0 ? 0 : u > 1 ? 1 : u;
         const qx = ax + dx * u - x, qz = az + dz * u - z, d = Math.sqrt(qx * qx + qz * qz);
         const k = (j - j0) * W + (i - i0);
-        if (d < bestD[k]) { bestD[k] = d; bestT[k] = cum[s] + u * (cum[s + 1] - cum[s]); bestC[k] = centre(s, u); }
+        if (d < bestD[k]) { bestD[k] = d; bestT[k] = cum[s] + u * (cum[s + 1] - cum[s]); bestC[k] = centre(s, u); if (skip) bestS[k] = skip[s] && skip[s + 1] ? 1 : 0; }
       }
     }
   }
   for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
     const k = (j - j0) * W + (i - i0), d = bestD[k];
     if (d > reach) continue;
+    if (skip && bestS[k]) continue;
     const idx = j * V + i, h0 = height[idx];
-    const tgt = profile(d, bestT[k], bestC[k]);
+    if (core && d <= core.r) core.h[idx] = bestC[k];
+    const tgt = profile(d, bestT[k], bestC[k], h0);
     let h: number;
     if (tgt !== null) h = tgt;
     else {
-      const edge = profile(half - 1e-3, bestT[k], bestC[k]) ?? bestC[k];
+      const edge = profile(half - 1e-3, bestT[k], bestC[k], h0) ?? bestC[k];
       const t = smoothstep(0, 1, (d - half) / bank);
       h = lerp(water ? Math.max(edge, bestC[k] + 0.4) : edge, h0, t);
     }

@@ -54,19 +54,21 @@ export class Water {
             float hz = (h(p1 + vec2(0.0, e)) - h(p1 - vec2(0.0, e))) + 0.6 * (h(p2 + vec2(0.0, e)) - h(p2 - vec2(0.0, e)));
             vec3 N = normalize(vec3(-hx * 5.0, 1.0, -hz * 5.0));
             vec3 V = normalize(cameraPosition - vW);
-            float fres = (0.02 + 0.98 * pow(1.0 - max(dot(N, V), 0.0), 5.0)) * 0.75;
+            float fres = (0.04 + 0.96 * pow(1.0 - max(dot(N, V), 0.0), 4.0)) * 0.9;
             vec3 R = reflect(-V, N);
             vec3 sky = mix(uHorizon * 0.8, uZenith, pow(max(R.y, 0.0), 0.5)) * 1.25;
             float spec = pow(max(dot(R, uSun), 0.0), 350.0) * 40.0 + pow(max(dot(R, uSun), 0.0), 24.0) * 0.6;
             float d = clamp(vDepth, 0.0, 3.0);
-            vec3 deep = mix(vec3(0.02, 0.09, 0.1), vec3(0.12, 0.08, 0.04), uMud);
-            vec3 shallow = mix(vec3(0.16, 0.3, 0.27), vec3(0.3, 0.23, 0.13), uMud);
+            vec3 deep = mix(vec3(0.015, 0.07, 0.1), vec3(0.05, 0.09, 0.08), uMud);
+            vec3 shallow = mix(vec3(0.1, 0.27, 0.3), vec3(0.2, 0.26, 0.2), uMud);
             float sunL = max(dot(vec3(0.0, 1.0, 0.0), uSun), 0.0) * 0.8 + 0.4;
             vec3 body = mix(shallow, deep, smoothstep(0.0, 1.6, d)) * sunL * 1.6;
-            float foam = smoothstep(0.25, 0.0, d) * smoothstep(0.35, 0.75, h(vUv * 0.3 + vec2(0.0, -uTime * 0.2)));
+            float foam = smoothstep(0.3, 0.0, d) * smoothstep(0.3, 0.7, h(vUv * 0.3 + vec2(0.0, -uTime * 0.2)));
+            // flow streaks: white water lines dragged downstream make the surface read as moving water from afar
+            foam += 0.35 * smoothstep(0.62, 0.8, h(vec2(vUv.x * 0.06, vUv.y * 0.012 - uTime * 0.05 * uFlow))) * smoothstep(0.1, 0.6, d);
             vec3 col = mix(body, sky, fres) + uSunCol * spec;
             col = mix(col, vec3(1.6), foam * 0.7);
-            float a = mix(0.55, 0.94, smoothstep(0.05, 1.2, d)) * smoothstep(-0.05, 0.08, d);
+            float a = mix(0.72, 0.96, smoothstep(0.05, 1.0, d)) * smoothstep(-0.05, 0.06, d);
             gl_FragColor = vec4(col, max(a, fres * 0.9) * smoothstep(-0.05, 0.05, d));
           }`,
         transparent: true, depthWrite: true,
@@ -77,4 +79,22 @@ export class Water {
     }
   }
   update(t: number) { this.uniforms.uTime.value = t; }
+
+  /** Frozen lakes: a glossy ice sheet with snow drifts and pressure cracks, a hair above the (ice-physics) ground. */
+  static ice(l: { x: number; z: number; r: number; h: number }): THREE.Mesh {
+    const c = document.createElement('canvas'); c.width = c.height = 1024;
+    const g = c.getContext('2d')!;
+    g.fillStyle = '#b9d4e2'; g.fillRect(0, 0, 1024, 1024);
+    let seed = 7; const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+    for (let i = 0; i < 260; i++) { const x = rnd() * 1024, y = rnd() * 1024, r = 20 + rnd() * 120; const gr = g.createRadialGradient(x, y, 0, x, y, r); gr.addColorStop(0, `rgba(250,253,255,${0.25 + rnd() * 0.45})`); gr.addColorStop(1, 'rgba(250,253,255,0)'); g.fillStyle = gr; g.beginPath(); g.ellipse(x, y, r, r * (0.3 + rnd() * 0.5), rnd() * 3, 0, 7); g.fill(); }
+    for (let i = 0; i < 70; i++) { g.strokeStyle = `rgba(${rnd() < 0.5 ? '255,255,255' : '70,110,135'},${0.25 + rnd() * 0.4})`; g.lineWidth = 0.6 + rnd() * 1.6; g.beginPath(); let x = rnd() * 1024, y = rnd() * 1024; g.moveTo(x, y); for (let k = 0; k < 8; k++) { x += (rnd() - 0.5) * 120; y += (rnd() - 0.5) * 120; g.lineTo(x, y); } g.stroke(); }
+    const tex = new THREE.CanvasTexture(c); tex.wrapS = tex.wrapT = THREE.RepeatWrapping; tex.repeat.set(l.r / 60, l.r / 60); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 8;
+    const m = new THREE.MeshPhysicalMaterial({ map: tex, roughness: 0.18, metalness: 0, clearcoat: 1, clearcoatRoughness: 0.08, envMapIntensity: 1.2 });
+    const geo = new THREE.CircleGeometry(l.r + 1, 96).rotateX(-Math.PI / 2);
+    // uv in metres-ish for the repeat
+    const uv = geo.attributes.uv as THREE.BufferAttribute, pos = geo.attributes.position as THREE.BufferAttribute;
+    for (let i = 0; i < uv.count; i++) uv.setXY(i, pos.getX(i) / (2 * l.r) + 0.5, pos.getZ(i) / (2 * l.r) + 0.5);
+    const mesh = new THREE.Mesh(geo, m); mesh.position.set(l.x, l.h + 0.05, l.z); mesh.receiveShadow = true;
+    return mesh;
+  }
 }

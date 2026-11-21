@@ -2,12 +2,12 @@
 // x = east, z = south, y = up. The hub sits at the origin where all four biomes meet.
 import { smoothstep } from '../core/noise';
 
-export const WORLD = 4096;           // metres per side
+export const WORLD = 5120;           // metres per side
 export const HALF = WORLD / 2;
-export const N = 2048;               // height cells per side
+export const N = 2560;               // height cells per side
 export const CELL = WORLD / N;       // 2 m
 export const V = N + 1;              // height vertices per side
-export const CTRL = 1024;            // splat-control resolution (4 m)
+export const CTRL = 1280;            // splat-control resolution (4 m)
 
 export const enum Biome { Desert = 0, Forest = 1, Snow = 2, Quarry = 3 }
 export const BIOME_NAMES = ['Desert Canyon', 'Dense Forest', 'Snowy Mountain', 'Industrial Quarry'];
@@ -22,11 +22,29 @@ export const NARROWS = [-350, 560];
 export const BRIDGES_X = [-700, 150, 1000];
 export const CANYON_FLOOR = 3.6, CANYON_WATER = 3.9;
 
-/** Rivers as polylines (x,z), width at water surface, water level is computed from the carved bed. */
-export interface River { id: string; pts: P2[]; width: number; depth: number; mud: boolean }
+/** Rivers: polylines (x,z) through broad carved valleys. Water level follows the smoothed valley floor downhill. */
+export interface River { id: string; pts: P2[]; width: number; depth: number; mud: boolean; plain: number; startH?: number; endH?: number }
 export const RIVERS: River[] = [
-  // Muddy Creek: snowmelt from the north-east, winding south through the forest
-  { id: 'creek', width: 14, depth: 1.0, mud: true, pts: [[860, -1130], [1010, -900], [1150, -560], [1230, -220], [1180, 120], [1260, 430], [1430, 700], [1560, 980], [1700, 1250], [1900, 1420]] },
+  // Muddy Creek: snowmelt from the north-east foothills, winding south through the forest into the canyon's east end
+  { id: 'creek', width: 18, depth: 1.1, mud: true, plain: 26, endH: CANYON_WATER + 0.6, pts: [[1090, -860], [1150, -560], [1230, -220], [1180, 120], [1260, 430], [1430, 700], [1520, 900], [1420, 1040], [1260, 1080], [1120, cz0(1120)]] },
+];
+function cz0(x: number) { return canyonZ(x); }
+
+/** Mountain passes: valleys cut through ranges so roads can cross them at sane grades. */
+export interface Pass { id: string; pts: P2[]; floor: number; slope: number; smooth: number; maxH?: number }
+export const PASSES: Pass[] = [
+  // north-west: from the peak-descent foot over the shoulder into the lowland where the Pass Hut sits
+  { id: 'alpine', pts: [[-694, -950], [-880, -1060], [-1100, -1120], [-1350, -1210], [-1600, -1300]], floor: 16, slope: 0.75, smooth: 220 },
+  // the hidden high valley above the Pass Hut (barn-find trail)
+  { id: 'outpost', pts: [[-1600, -1300], [-1630, -1500], [-1600, -1700], [-1480, -1860]], floor: 9, slope: 0.8, smooth: 160 },
+  // north-east: from the Ridgeback lowland up to the frozen lake
+  { id: 'lake', pts: [[1760, -1330], [1600, -1470], [1440, -1620], [1290, -1730]], floor: 16, slope: 0.7, smooth: 220 },
+];
+
+/** Lakes: flattened basins. Frozen ones are ice sheets (snow-white, ice physics). */
+export interface Lake { id: string; x: number; z: number; r: number; h: number; ice: boolean }
+export const LAKES: Lake[] = [
+  { id: 'frozen', x: 1180, z: -1830, r: 175, h: 143, ice: true },
 ];
 
 export interface Pit { x: number; z: number; r: number; tiers: number; tierH: number; tierW: number }
@@ -37,12 +55,19 @@ export const PITS: Pit[] = [
 
 export const HUB = { x: 0, z: 0, r: 190, h: 24 };
 
+/** Garages. yaw: the doors face (sin yaw, cos yaw); the apron in front of the doors meets a road. */
 export const GARAGES = [
   { id: 'hub', name: 'Central Hub Garage', x: -95, z: 58, yaw: Math.PI / 2, main: true },
   { id: 'desert', name: 'Dune Outpost Garage', x: 245, z: 1560, yaw: -Math.PI / 2, main: false },
   { id: 'forest', name: 'Logging Camp Garage', x: 1560, z: 360, yaw: Math.PI, main: false },
-  { id: 'snow', name: 'Summit Station Garage', x: -160, z: -1340, yaw: 0, main: false },
+  { id: 'snow', name: 'Summit Station Garage', x: 40, z: -1462, yaw: 0, main: false },
   { id: 'quarry', name: 'Quarry Works Garage', x: -905, z: -300, yaw: Math.PI / 2, main: false },
+  { id: 'baja', name: 'Baja Base Garage', x: -1975, z: 1560, yaw: 0.25, main: false },
+  { id: 'ridgeback', name: 'Ridgeback Lodge Garage', x: 2075, z: -160, yaw: -Math.PI / 2, main: false },
+  { id: 'lake', name: 'Icefield Lodge Garage', x: 1440, z: -1770, yaw: -Math.PI / 2, main: false },
+  { id: 'west', name: 'West Pit Depot Garage', x: -1640, z: 430, yaw: -Math.PI / 2, main: false },
+  { id: 'pass', name: 'Pass Hut Garage', x: -1660, z: -1225, yaw: Math.PI * 0.75, main: false },
+  { id: 'canyon', name: 'Canyon Mouth Garage', x: -1440, z: 820, yaw: Math.PI / 2, main: false },
 ];
 
 const cz = (x: number) => canyonZ(x);

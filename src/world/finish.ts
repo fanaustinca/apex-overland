@@ -1,9 +1,9 @@
 // Second generation pass: everything the renderer and physics derive from the final heightmap.
-import { N, V, CELL, HALF, CTRL, HUB, GARAGES, type P2 } from './layout';
+import { N, V, CELL, HALF, CTRL, HUB, GARAGES, LAKES, type P2 } from './layout';
 import { Simplex, smoothstep, clamp } from '../core/noise';
 import { biomeWeights } from './layout';
 import { generateBase, carveRivers, SEED, type WorldData } from './gen';
-import { buildRoads, CABINS, type Road, type Bridge } from './roads';
+import { buildRoads, CABINS, type Road, type Bridge, type Pad } from './roads';
 
 /** Terrain texture layers (index = texture-array layer). Keep in sync with tools/fetch-assets.mjs TERRAIN. */
 export const LAYERS = ['red_sand', 'cracked_red_ground', 'cliff_side', 'forest_ground_04', 'forrest_ground_01', 'snow_02',
@@ -30,52 +30,39 @@ export interface World extends WorldData {
 
 const sn = new Simplex(SEED + 99), sm = new Simplex(SEED + 123);
 
-export function generateWorld(log: (s: string) => void = () => {}): World {
+export function generateWorld(log: (s: string) => void = () => {}, rows?: Float32Array, shade = true): World {
   let t = performance.now();
   const lap = (s: string) => { const n = performance.now(); log(`${s} ${Math.round(n - t)}ms`); t = n; };
-  const base = generateBase(); lap('terrain');
-  levelPads(base as World);
-  const r = buildRoads(base); lap('roads');
+  const base = generateBase(rows); lap('terrain');
+  const pads = levelPads(base as World);
+  const r = buildRoads(base, pads); lap('roads + earthworks');
   const w = base as World;
   Object.assign(w, r);
-  carveRivers(base); lap('rivers (fords cut through roads)');
-  easeFords(w);
+  carveRivers(base); lap('river channels');
   w.normals = computeNormals(w.height); lap('normals');
-  w.bake = bakeLight(w.height); lap('light bake');
-  const { ctrl, surface } = splat(w); w.ctrl = ctrl; w.surface = surface; lap('splat');
+  if (shade) { const s = shadeRows(w, 0, CTRL); w.bake = s.bake; w.ctrl = s.ctrl; w.surface = s.surface; lap('light bake + splat'); }
   return w;
 }
 
-/** Level building pads (garages, barns) so foundations neither float nor sink. */
-function levelPads(w: World) {
-  const pads = [...GARAGES.map((g) => ({ x: g.x + Math.sin(g.yaw) * (g.main ? 10 : 4), z: g.z + Math.cos(g.yaw) * (g.main ? 10 : 4), r: g.main ? 40 : 20 })), ...CABINS.map((c) => ({ x: c.x, z: c.z, r: 10 }))];
-  for (const p of pads) {
-    const h0 = hAt(w.height, p.x, p.z), R = p.r + 14;
-    for (let j = Math.floor((p.z - R + HALF) / CELL); j <= Math.ceil((p.z + R + HALF) / CELL); j++) for (let i = Math.floor((p.x - R + HALF) / CELL); i <= Math.ceil((p.x + R + HALF) / CELL); i++) {
-      if (i < 0 || j < 0 || i > N || j > N) continue;
-      const x = -HALF + i * CELL, z = -HALF + j * CELL, d = Math.hypot(x - p.x, z - p.z);
-      if (d > R) continue;
-      const t = smoothstep(p.r, R, d);
-      w.height[j * V + i] = h0 * (1 - t) + w.height[j * V + i] * t;
-    }
-  }
+/** Light bake + splat for texel rows j0..j1-1 (independent per row, so it parallelises across workers). */
+export function shadeRows(w: Pick<World, 'height' | 'normals' | 'wet' | 'water' | 'roadMask' | 'roadKind'>, j0: number, j1: number) {
+  const bake = bakeLight(w.height, j0, j1);
+  const { ctrl, surface } = splat(w, j0, j1);
+  return { bake, ctrl, surface };
 }
 
-/** Where roads cross rivers, relax the cut banks into drivable ford ramps. */
-function easeFords(w: World) {
-  const H = w.height, mask = new Uint8Array(V * V);
-  for (let j = 2; j < N - 2; j++) for (let i = 2; i < N - 2; i++) {
-    if (w.roadMask[j * N + i] < 60) continue;
-    // near water?
-    let wet = false;
-    for (let dj = -16; dj <= 16 && !wet; dj += 4) for (let di = -16; di <= 16; di += 4) { const ci = (i + di) >> 1, cj = (j + dj) >> 1; if (ci >= 0 && cj >= 0 && ci < CTRL && cj < CTRL && !Number.isNaN(w.water[cj * CTRL + ci])) { wet = true; break; } }
-    if (wet) for (let dj = -5; dj <= 5; dj++) for (let di = -5; di <= 5; di++) { const jj = j + dj, ii = i + di; if (jj > 0 && ii > 0 && jj < N && ii < N) mask[jj * V + ii] = 1; }
-  }
-  const tmp = new Float32Array(H.length);
-  for (let it = 0; it < 60; it++) {
-    tmp.set(H);
-    for (let j = 1; j < N; j++) for (let i = 1; i < N; i++) { const k = j * V + i; if (mask[k]) H[k] = (tmp[k] * 2 + tmp[k - 1] + tmp[k + 1] + tmp[k - V] + tmp[k + V] + tmp[k - V - 1] + tmp[k - V + 1] + tmp[k + V - 1] + tmp[k + V + 1]) / 10; }
-  }
+/** Level building pads (garages, barns) so foundations neither float nor sink; roads then treat them as formation. */
+export function padList(): { x: number; z: number; r: number }[] {
+  return CABINS.map((c) => ({ x: c.x + Math.sin(c.yaw) * 4, z: c.z + Math.cos(c.yaw) * 4, r: 14 }));
+}
+function levelPads(w: World): Pad[] {
+  return padList().map((p) => {
+    // pad height: the median of the ground under it, so cut and fill balance
+    const hs: number[] = [];
+    for (let a = 0; a < 16; a++) for (const f of [0, 0.5, 1]) hs.push(hAt(w.height, p.x + Math.cos(a / 16 * Math.PI * 2) * p.r * f, p.z + Math.sin(a / 16 * Math.PI * 2) * p.r * f));
+    hs.sort((a, b) => a - b);
+    return { ...p, h: hs[hs.length >> 1] };
+  });
 }
 
 function computeNormals(h: Float32Array): Uint8Array {
@@ -100,25 +87,34 @@ function hAt(h: Float32Array, x: number, z: number): number {
 }
 
 /** Soft sun visibility (horizon march toward the sun) and horizon-based ambient occlusion, at 4 m. */
-function bakeLight(h: Float32Array): Uint8Array {
-  const out = new Uint8Array(CTRL * CTRL * 4);
+function bakeLight(h: Float32Array, j0 = 0, j1 = CTRL): Uint8Array {
+  const out = new Uint8Array((j1 - j0) * CTRL * 4);
   const [sx, sy, sz] = SUN_DIR;
   const hl = Math.hypot(sx, sz), tanS = sy / hl, dx = sx / hl, dz = sz / hl;
   const dirs = 8;
   const DX = Array.from({ length: dirs }, (_, k) => Math.cos(k * Math.PI * 2 / dirs)), DZ = Array.from({ length: dirs }, (_, k) => Math.sin(k * Math.PI * 2 / dirs));
   const R = [6, 14, 28, 52, 96];
-  for (let j = 0; j < CTRL; j++) for (let i = 0; i < CTRL; i++) {
+  let maxH = -1e9; for (let k = 0; k < h.length; k += 7) if (h[k] > maxH) maxH = h[k];
+  maxH += 4;
+  // 32 m max-height blocks let the sun march skip open air quickly
+  const B = 16, NB = Math.ceil(V / B), blk = new Float32Array(NB * NB).fill(-1e9);
+  for (let j = 0; j < V; j++) for (let i = 0; i < V; i++) { const b = ((j / B) | 0) * NB + ((i / B) | 0); if (h[j * V + i] > blk[b]) blk[b] = h[j * V + i]; }
+  const blockMax = (x: number, z: number) => { const i = clamp(((x + HALF) / CELL / B) | 0, 0, NB - 1), j = clamp(((z + HALF) / CELL / B) | 0, 0, NB - 1); return blk[j * NB + i]; };
+  for (let j = j0; j < j1; j++) for (let i = 0; i < CTRL; i++) {
     const x = -HALF + (i + 0.5) * 4, z = -HALF + (j + 0.5) * 4;
     const h0 = hAt(h, x, z) + 0.3;
     // sun: track the minimum clearance angle along the ray for a penumbra
     let vis = 1, d = 4;
     while (d < 1600) {
-      const hh = hAt(h, x + dx * d, z + dz * d);
-      const clear = (h0 + d * tanS - hh) / d;           // tan of clearance
+      const px = x + dx * d, pz = z + dz * d, ray = h0 + d * tanS;
+      // well clear of everything in this block: penumbra can't tighten here, so stride across it
+      if ((ray - blockMax(px, pz)) / d * 14 + 0.5 >= vis) { d += 12 + d * 0.05; if (ray > maxH) break; continue; }
+      const hh = hAt(h, px, pz);
+      const clear = (ray - hh) / d;           // tan of clearance
       vis = Math.min(vis, clamp(clear * 14 + 0.5, 0, 1));
       if (vis <= 0) break;
       d += 3 + d * 0.06;
-      if (h0 + d * tanS > 700) break;
+      if (ray > maxH) break;
     }
     // ambient occlusion
     let occ = 0;
@@ -130,19 +126,20 @@ function bakeLight(h: Float32Array): Uint8Array {
     const ao = clamp(1 - occ / dirs * 1.25, 0, 1);
     // cavity: local concavity for detail darkening / dust accumulation
     const lap = (hAt(h, x - 4, z) + hAt(h, x + 4, z) + hAt(h, x, z - 4) + hAt(h, x, z + 4)) / 4 - h0 + 0.3;
-    const k = (j * CTRL + i) * 4;
+    const k = ((j - j0) * CTRL + i) * 4;
     out[k] = Math.round(vis * 255); out[k + 1] = Math.round(ao * 255); out[k + 2] = Math.round(clamp(0.5 + lap * 0.25, 0, 1) * 255); out[k + 3] = 255;
   }
   return out;
 }
 
-function splat(w: World): { ctrl: Uint8Array; surface: Uint8Array } {
-  const ctrl = new Uint8Array(CTRL * CTRL * 12);
-  const surface = new Uint8Array(CTRL * CTRL);
+function splat(w: Pick<World, 'height' | 'normals' | 'wet' | 'water' | 'roadMask' | 'roadKind'>, j0 = 0, j1 = CTRL): { ctrl: Uint8Array; surface: Uint8Array } {
+  const RN = (j1 - j0) * CTRL;
+  const ctrl = new Uint8Array(RN * 12);
+  const surface = new Uint8Array(RN);
   const bw = [0, 0, 0, 0];
   const L = new Float32Array(12);
   const sx = new Simplex(SEED);
-  for (let j = 0; j < CTRL; j++) for (let i = 0; i < CTRL; i++) {
+  for (let j = j0; j < j1; j++) for (let i = 0; i < CTRL; i++) {
     const x = -HALF + (i + 0.5) * 4, z = -HALF + (j + 0.5) * 4;
     const warp = sx.fbm(x / 1100 + 40, z / 1100 - 40, 3);
     biomeWeights(x, z, warp, bw);
@@ -180,6 +177,8 @@ function splat(w: World): { ctrl: Uint8Array; surface: Uint8Array } {
     L[10] += bw[3] * steep;
     // hub: grass with packed dirt
     if (hub > 0) { for (let k = 0; k < 12; k++) L[k] *= 1 - hub; L[4] += hub * (0.65 + 0.35 * smoothstep(-0.3, 0.3, n1)); L[9] += hub * 0.35 * (1 - smoothstep(-0.3, 0.3, n1)); }
+    // frozen lakes: wind-polished ice with a dusting of snow
+    for (const lk of LAKES) { const dl = Math.hypot(x - lk.x, z - lk.z); if (dl < lk.r + 6) { const f = 1 - smoothstep(lk.r - 4, lk.r + 6, dl); for (let k = 0; k < 12; k++) L[k] *= 1 - f; L[5] += f; } }
     // wet ground -> mud
     if (wet > 0) { for (let k = 0; k < 12; k++) L[k] *= 1 - wet * 0.85; L[8] += wet * 0.85; }
     // roads (sample the 2 m mask at this texel's 4 corners, max)
@@ -188,15 +187,16 @@ function splat(w: World): { ctrl: Uint8Array; surface: Uint8Array } {
     // normalise
     let s = 0; for (let k = 0; k < 12; k++) s += L[k];
     for (let k = 0; k < 12; k++) L[k] /= s || 1;
-    const o = (j * CTRL + i);
-    for (let k = 0; k < 12; k++) ctrl[(Math.floor(k / 4) * CTRL * CTRL + o) * 4 + (k % 4)] = Math.round(L[k] * 255);
+    const o = (j * CTRL + i), ol = (j - j0) * CTRL + i;
+    for (let k = 0; k < 12; k++) ctrl[(Math.floor(k / 4) * RN + ol) * 4 + (k % 4)] = Math.round(L[k] * 255);
     // dominant physics surface
     let best = 0; for (let k = 1; k < 12; k++) if (L[k] > L[best]) best = k;
     const MAP = [Surf.Sand, Surf.Dirt, Surf.Rock, Surf.Dirt, Surf.Grass, Surf.Snow, Surf.Rock, Surf.Gravel, Surf.Mud, Surf.Dirt, Surf.Rock, Surf.Asphalt];
     let sf = MAP[best];
     if (rm > 0.5 && kind) sf = [Surf.Asphalt, Surf.Asphalt, Surf.Dirt, Surf.Gravel, Surf.Ice, Surf.Dirt, Surf.Gravel][kind];
     if (!Number.isNaN(w.water[o])) sf = Surf.Mud;
-    surface[o] = sf;
+    for (const lk of LAKES) if (lk.ice && Math.hypot(x - lk.x, z - lk.z) < lk.r) sf = Surf.Ice;
+    surface[ol] = sf;
   }
   return { ctrl, surface };
 }

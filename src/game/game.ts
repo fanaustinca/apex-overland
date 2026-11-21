@@ -5,10 +5,11 @@ import { Terrain } from '../world/terrain';
 import type { World } from '../world/finish';
 import { SURF_NAMES } from '../world/finish';
 import GenWorker from '../world/gen.worker?worker';
+import RowsWorker from '../world/rows.worker?worker';
 import { VEHICLES, VEH, STOCK, stats, type Upgrades } from '../vehicles/defs';
 import { buildVisual } from '../vehicles/models';
 import { sampleH } from '../world/gen';
-import { CTRL, HALF, BIOME_NAMES, biomeWeights, HUB } from '../world/layout';
+import { CTRL, HALF, V, BIOME_NAMES, biomeWeights, HUB, LAKES } from '../world/layout';
 import { Physics, initRapier, type RAPIER } from '../physics/physics';
 import { Foliage } from '../world/foliage';
 import { Water } from '../world/water';
@@ -27,13 +28,35 @@ import { assetUrl } from '../core/assets';
 
 declare global { interface Window { AO: any } }
 
+/** World generation across workers: noise rows in parallel, the sequential core in one worker, then shading rows in parallel. */
 export async function loadWorld(onLog: (s: string) => void): Promise<World> {
-  return new Promise((resolve, reject) => {
+  const K = Math.max(2, Math.min(8, (navigator.hardwareConcurrency || 4) - 1));
+  const pool = Array.from({ length: K }, () => new RowsWorker());
+  const run = <T,>(wk: Worker, msg: unknown, transfer: Transferable[] = []) => new Promise<T>((res, rej) => { wk.onmessage = (e) => res(e.data); wk.onerror = rej; wk.postMessage(msg, transfer); });
+  const split = (n: number) => Array.from({ length: K }, (_, k) => [Math.floor(n * k / K), Math.floor(n * (k + 1) / K)]);
+  let t = performance.now();
+  const parts = await Promise.all(split(V).map(([j0, j1], k) => run<{ h: Float32Array }>(pool[k], { stage: 'base', j0, j1 })));
+  const rows = new Float32Array(V * V);
+  split(V).forEach(([j0], k) => rows.set(parts[k].h, j0 * V));
+  onLog(`terrain ${Math.round(performance.now() - t)}ms (${K} workers)`); t = performance.now();
+  const wd = await new Promise<World>((resolve, reject) => {
     const w = new GenWorker();
-    w.onmessage = (e) => { if (e.data.log) onLog(e.data.log); else if (e.data.world) { const wd = e.data.world; wd.roads.forEach((r: { h: number[] | Float32Array }) => (r.h = Float32Array.from(r.h))); resolve(wd); w.terminate(); } };
+    w.onmessage = (e) => { if (e.data.log) onLog(e.data.log); else if (e.data.world) { const d = e.data.world; d.roads.forEach((r: { h: number[] | Float32Array; bridged: number[] | Uint8Array }) => { r.h = Float32Array.from(r.h); r.bridged = Uint8Array.from(r.bridged); }); resolve(d); w.terminate(); } };
     w.onerror = (e) => reject(e);
-    w.postMessage({});
+    w.postMessage({ rows }, [rows.buffer]);
   });
+  t = performance.now();
+  const inp = { height: wd.height, normals: wd.normals, wet: wd.wet, water: wd.water, roadMask: wd.roadMask, roadKind: wd.roadKind };
+  const sh = await Promise.all(split(CTRL).map(([j0, j1], k) => run<{ bake: Uint8Array; ctrl: Uint8Array; surface: Uint8Array }>(pool[k], { stage: 'shade', w: inp, j0, j1 })));
+  wd.bake = new Uint8Array(CTRL * CTRL * 4); wd.ctrl = new Uint8Array(CTRL * CTRL * 12); wd.surface = new Uint8Array(CTRL * CTRL);
+  split(CTRL).forEach(([j0, j1], k) => {
+    const R = (j1 - j0) * CTRL, s = sh[k];
+    wd.bake.set(s.bake, j0 * CTRL * 4); wd.surface.set(s.surface, j0 * CTRL);
+    for (let p = 0; p < 3; p++) wd.ctrl.set(s.ctrl.subarray(p * R * 4, (p + 1) * R * 4), (p * CTRL * CTRL + j0 * CTRL) * 4);
+  });
+  pool.forEach((w) => w.terminate());
+  onLog(`light bake + splat ${Math.round(performance.now() - t)}ms`);
+  return wd;
 }
 
 export type Mode = 'title' | 'drive' | 'garage' | 'map' | 'pause' | 'results';
@@ -105,7 +128,7 @@ export class Game {
     await this.terrain.loadLayers((f) => progress('Loading photo-scanned terrain materials', 0.45 + f * 0.2));
     this.gfx.scene.add(this.terrain.group);
     progress('Growing forests', 0.68);
-    this.races = buildRaces(this.world.roads);
+    this.races = buildRaces(this.world.roads, this.world.rivers);
     this.foliage = new Foliage(this.world, this.phys, this.races.filter((r) => r.id !== 'timberline-plow').map((r) => r.path));
     await this.foliage.build(loadTex);
     this.gfx.scene.add(this.foliage.group);
@@ -116,6 +139,7 @@ export class Game {
     this.water = new Water(this.world, this.terrain.noiseTex, new THREE.Vector3().copy(this.gfx.sun.position).normalize());
     this.water.uniforms.uSun.value.set(...(await import('../world/finish')).SUN_DIR).normalize();
     this.gfx.scene.add(this.water.group);
+    for (const l of LAKES) if (l.ice) this.water.group.add(Water.ice(l));
     this.props = new Props(this.world, this.phys);
     await this.props.build(loadTex);
     this.gfx.scene.add(this.props.group);
@@ -172,7 +196,7 @@ export class Game {
   }
   teleportGarage(id: string) {
     const pad = this.props.garagePads.find((g) => g.id === id)!;
-    this.teleport(pad.pos.x, pad.pos.z, pad.yaw + Math.PI / 2);
+    this.teleport(pad.pos.x, pad.pos.z, pad.yaw);
   }
   nearestGarage(): { id: string; d: number } {
     const p = this.player.v.position();
@@ -239,7 +263,7 @@ export class Game {
       const a = def.path[Math.max(0, pi - 2)], b = def.path[Math.min(def.path.length - 1, pi + 2)];
       const yaw = Math.atan2(b[0] - a[0], b[1] - a[1]);
       const y = this.ground(c[0], c[1]);
-      const gg = new THREE.Group(); gg.position.set(c[0], y, c[1]); gg.rotation.y = yaw + Math.PI / 2; g.add(gg);
+      const gg = new THREE.Group(); gg.position.set(c[0], y, c[1]); gg.rotation.y = yaw; g.add(gg);
       const half = last ? 9 : 8;
       for (const s of [-1, 1]) {
         const p = new THREE.Mesh(new THREE.CylinderGeometry(0.25, 0.3, 7, 10), post); p.position.set(s * half, 3.5 + (this.ground(c[0] + Math.cos(yaw + Math.PI / 2) * 0, c[1]) - y), 0); gg.add(p);
@@ -266,6 +290,10 @@ export class Game {
     for (const r of R.racers) {
       if (r.finished) continue;
       const p = r.e.v.position();
+      // waypoints are optional guidance unless the race is strict: reaching the finish is what counts
+      const fin = cps[cps.length - 1];
+      if (!R.def.strict && r.cp < cps.length - 1 && Math.hypot(p.x - fin[0], p.z - fin[1]) < 18) r.cp = cps.length - 1;
+      else if (!R.def.strict) for (let k = r.cp + 1; k < cps.length - 1; k++) if (Math.hypot(p.x - cps[k][0], p.z - cps[k][1]) < 22) r.cp = k;
       const c = cps[r.cp];
       const rad = r.cp === cps.length - 1 ? 18 : 22;
       if (Math.hypot(p.x - c[0], p.z - c[1]) < rad) {

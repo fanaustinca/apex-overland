@@ -3,7 +3,7 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
-import { HALF, CTRL, N, biomeWeights, HUB, PITS } from './layout';
+import { HALF, CTRL, N, WORLD, biomeWeights, HUB, PITS } from './layout';
 import { Simplex, hash2, smoothstep } from '../core/noise';
 import { sampleH, SEED } from './gen';
 import type { World } from './finish';
@@ -16,7 +16,7 @@ import { CABINS } from './roads';
 export const enum TK { Pine, Fir, Redwood, Broad, Saguaro }
 const KINDS = 5, VARS = 3;
 const BREAKABLE = [true, true, false, true, true];
-const CELL = 64, GRID = 4096 / CELL;
+const CELL = 64, GRID = WORLD / CELL, AV = WORLD / 8;
 const CLEAR: [number, number, number][] = [
   ...GARAGES.map((g) => [g.x, g.z, g.main ? 60 : 40] as [number, number, number]),
   ...CABINS.map((c) => [c.x, c.z, 26] as [number, number, number]),
@@ -52,19 +52,19 @@ export class Foliage {
   broken = 0;
   onBreak?: (x: number, y: number, z: number, kind: number) => void;
 
-  private avoid = new Uint8Array(512 * 512);
+  private avoid = new Uint8Array(AV * AV);
   constructor(private w: World, private phys: Physics, avoidPaths: [number, number][][] = []) {
-    const cap = 260000;
+    const cap = 420000;
     this.tx = new Float32Array(cap); this.tz = new Float32Array(cap); this.ty = new Float32Array(cap); this.ts = new Float32Array(cap); this.tr = new Float32Array(cap);
     this.tk = new Uint8Array(cap); this.tv = new Uint8Array(cap); this.alive = new Uint8Array(cap); this.hsel = new Float32Array(cap);
-    const mcap = 80000;
+    const mcap = 130000;
     this.mx = new Float32Array(mcap); this.mz = new Float32Array(mcap); this.my = new Float32Array(mcap); this.ms = new Float32Array(mcap); this.mr = new Float32Array(mcap); this.mk = new Uint8Array(mcap);
     for (let i = 0; i < GRID * GRID; i++) { this.cells.push([]); this.mcells.push([]); }
     this.fixedBody = phys.world.createRigidBody(RAPIER.RigidBodyDesc.fixed());
     // keep race corridors clear of trees and boulders (8 m cells, ~9 m either side of the racing line)
     for (const path of avoidPaths) for (const [x, z] of path) {
       const ci = Math.floor((x + HALF) / 8), cj = Math.floor((z + HALF) / 8);
-      for (let dj = -1; dj <= 1; dj++) for (let di = -1; di <= 1; di++) { const i = ci + di, j = cj + dj; if (i >= 0 && j >= 0 && i < 512 && j < 512) this.avoid[j * 512 + i] = 1; }
+      for (let dj = -1; dj <= 1; dj++) for (let di = -1; di <= 1; di++) { const i = ci + di, j = cj + dj; if (i >= 0 && j >= 0 && i < AV && j < AV) this.avoid[j * AV + i] = 1; }
     }
     this.place();
   }
@@ -82,7 +82,7 @@ export class Foliage {
       const x = gx + (h1 - 0.5) * STEP * 0.9, z = gz + (h2 - 0.5) * STEP * 0.9;
       if (Math.hypot(x - HUB.x, z - HUB.z) < HUB.r - 10) continue;
       if (PITS.some((p) => Math.hypot(x - p.x, z - p.z) < p.r + 25)) { if (hash2(gx, gz, 21) > 0.04) continue; }
-      if (this.avoid[Math.floor((z + HALF) / 8) * 512 + Math.floor((x + HALF) / 8)]) continue;
+      if (this.avoid[Math.floor((z + HALF) / 8) * AV + Math.floor((x + HALF) / 8)]) continue;
       // keep clearings around buildings and set pieces
       if (CLEAR.some(([cx, cz, r]) => (x - cx) ** 2 + (z - cz) ** 2 < r * r)) continue;
       biomeWeights(x, z, sx.fbm(x / 1100 + 40, z / 1100 - 40, 3), bw);
