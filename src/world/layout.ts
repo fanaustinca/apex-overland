@@ -37,6 +37,14 @@ export const PITS: Pit[] = [
 
 export const HUB = { x: 0, z: 0, r: 190, h: 24 };
 
+export const GARAGES = [
+  { id: 'hub', name: 'Central Hub Garage', x: -95, z: 58, yaw: Math.PI / 2, main: true },
+  { id: 'desert', name: 'Dune Outpost Garage', x: 245, z: 1560, yaw: -Math.PI / 2, main: false },
+  { id: 'forest', name: 'Logging Camp Garage', x: 1560, z: 360, yaw: Math.PI, main: false },
+  { id: 'snow', name: 'Summit Station Garage', x: -160, z: -1340, yaw: 0, main: false },
+  { id: 'quarry', name: 'Quarry Works Garage', x: -905, z: -300, yaw: Math.PI / 2, main: false },
+];
+
 const cz = (x: number) => canyonZ(x);
 /** Off-road racing lines: mesas are eroded out of a corridor along these so every race is drivable. */
 export const OFFROAD: Record<string, P2[][]> = {

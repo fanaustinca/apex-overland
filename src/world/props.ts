@@ -9,13 +9,8 @@ import { PITS, CANYON_FLOOR, type P2 } from './layout';
 import { RAPIER, G, groups, type Physics } from '../physics/physics';
 import { assetUrl } from '../core/assets';
 
-export const GARAGES = [
-  { id: 'hub', name: 'Central Hub Garage', x: -95, z: 58, yaw: Math.PI / 2, main: true },
-  { id: 'desert', name: 'Dune Outpost Garage', x: 245, z: 1560, yaw: -Math.PI / 2, main: false },
-  { id: 'forest', name: 'Logging Camp Garage', x: 1560, z: 360, yaw: Math.PI, main: false },
-  { id: 'snow', name: 'Summit Station Garage', x: -160, z: -1340, yaw: 0, main: false },
-  { id: 'quarry', name: 'Quarry Works Garage', x: -905, z: -300, yaw: Math.PI / 2, main: false },
-];
+import { GARAGES } from './layout';
+export { GARAGES };
 export const SPEED_TRAPS = [
   { name: 'Hub Highway Radar', x: 35, z: 420, r: 14 }, { name: 'Haul Road Radar', x: -430, z: 6, r: 16 }, { name: 'Dune Flats Radar', x: 165, z: 1520, r: 16 },
   { name: 'Forest Straight Radar', x: 610, z: 20, r: 12 }, { name: 'Ridge Run Radar', x: 300, z: -1435, r: 12 },

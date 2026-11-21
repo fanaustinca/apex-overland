@@ -3,6 +3,8 @@
 import * as THREE from 'three';
 import { V, HALF, WORLD, CELL } from './layout';
 import type { World } from './finish';
+import { GARAGES } from './props';
+import { CABINS } from './roads';
 
 export class Grass {
   mesh: THREE.Mesh;
@@ -35,12 +37,13 @@ export class Grass {
     g.instanceCount = 60000;
     g.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 1e6);
     this.geo = g;
-    this.uniforms = { tH: { value: hTex }, tC0: { value: ctrl[0] }, tC1: { value: ctrl[1] }, tC2: { value: ctrl[2] }, tR: { value: road }, tN: { value: noise }, uCam: { value: new THREE.Vector3() }, uR: { value: 55 }, uTime: time };
+    this.uniforms = { tH: { value: hTex }, tC0: { value: ctrl[0] }, tC1: { value: ctrl[1] }, tC2: { value: ctrl[2] }, tR: { value: road }, tN: { value: noise }, uCam: { value: new THREE.Vector3() }, uR: { value: 55 }, uTime: time,
+      uClear: { value: [...GARAGES.map((g) => new THREE.Vector3(g.x + Math.sin(g.yaw) * (g.main ? 16 : 6), g.z + Math.cos(g.yaw) * (g.main ? 16 : 6), g.main ? 42 : 20)), ...CABINS.map((c) => new THREE.Vector3(c.x, c.z, 11))] } };
     const m = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.85, metalness: 0, side: THREE.DoubleSide });
     m.onBeforeCompile = (sh) => {
       Object.assign(sh.uniforms, this.uniforms);
       sh.vertexShader = sh.vertexShader.replace('#include <common>', `#include <common>
-        attribute vec4 aOff; uniform sampler2D tH, tC0, tC1, tC2, tR, tN; uniform vec3 uCam; uniform float uR, uTime;
+        attribute vec4 aOff; uniform sampler2D tH, tC0, tC1, tC2, tR, tN; uniform vec3 uCam; uniform float uR, uTime; uniform vec3 uClear[9];
         varying vec3 vGCol; varying float vGy;
         float hAt(vec2 p) {
           vec2 f = (p + ${HALF.toFixed(1)}) / ${CELL.toFixed(1)}; ivec2 i = ivec2(floor(f)); vec2 u = f - vec2(i);
@@ -61,6 +64,7 @@ export class Grass {
           dens *= smoothstep(0.15, 0.6, nz.x + 0.25);
           float dist = length(wp - uCam.xz);
           float fade = 1.0 - smoothstep(uR * 0.7, uR, dist);
+          for (int ci = 0; ci < 9; ci++) dens *= smoothstep(uClear[ci].z, uClear[ci].z + 4.0, length(wp - uClear[ci].xy));
           float keep = step(aOff.w, dens * 1.25) * fade;
           float bi = position.z;
           float hb = fract(sin(dot(vec2(aOff.w, bi), vec2(12.9898, 78.233))) * 43758.5453);

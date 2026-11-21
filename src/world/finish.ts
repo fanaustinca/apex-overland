@@ -1,9 +1,9 @@
 // Second generation pass: everything the renderer and physics derive from the final heightmap.
-import { N, V, CELL, HALF, CTRL, HUB, type P2 } from './layout';
+import { N, V, CELL, HALF, CTRL, HUB, GARAGES, type P2 } from './layout';
 import { Simplex, smoothstep, clamp } from '../core/noise';
 import { biomeWeights } from './layout';
 import { generateBase, carveRivers, SEED, type WorldData } from './gen';
-import { buildRoads, type Road, type Bridge } from './roads';
+import { buildRoads, CABINS, type Road, type Bridge } from './roads';
 
 /** Terrain texture layers (index = texture-array layer). Keep in sync with tools/fetch-assets.mjs TERRAIN. */
 export const LAYERS = ['red_sand', 'cracked_red_ground', 'cliff_side', 'forest_ground_04', 'forrest_ground_01', 'snow_02',
@@ -34,6 +34,7 @@ export function generateWorld(log: (s: string) => void = () => {}): World {
   let t = performance.now();
   const lap = (s: string) => { const n = performance.now(); log(`${s} ${Math.round(n - t)}ms`); t = n; };
   const base = generateBase(); lap('terrain');
+  levelPads(base as World);
   const r = buildRoads(base); lap('roads');
   const w = base as World;
   Object.assign(w, r);
@@ -43,6 +44,21 @@ export function generateWorld(log: (s: string) => void = () => {}): World {
   w.bake = bakeLight(w.height); lap('light bake');
   const { ctrl, surface } = splat(w); w.ctrl = ctrl; w.surface = surface; lap('splat');
   return w;
+}
+
+/** Level building pads (garages, barns) so foundations neither float nor sink. */
+function levelPads(w: World) {
+  const pads = [...GARAGES.map((g) => ({ x: g.x + Math.sin(g.yaw) * (g.main ? 10 : 4), z: g.z + Math.cos(g.yaw) * (g.main ? 10 : 4), r: g.main ? 40 : 20 })), ...CABINS.map((c) => ({ x: c.x, z: c.z, r: 10 }))];
+  for (const p of pads) {
+    const h0 = hAt(w.height, p.x, p.z), R = p.r + 14;
+    for (let j = Math.floor((p.z - R + HALF) / CELL); j <= Math.ceil((p.z + R + HALF) / CELL); j++) for (let i = Math.floor((p.x - R + HALF) / CELL); i <= Math.ceil((p.x + R + HALF) / CELL); i++) {
+      if (i < 0 || j < 0 || i > N || j > N) continue;
+      const x = -HALF + i * CELL, z = -HALF + j * CELL, d = Math.hypot(x - p.x, z - p.z);
+      if (d > R) continue;
+      const t = smoothstep(p.r, R, d);
+      w.height[j * V + i] = h0 * (1 - t) + w.height[j * V + i] * t;
+    }
+  }
 }
 
 /** Where roads cross rivers, relax the cut banks into drivable ford ramps. */
