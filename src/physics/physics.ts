@@ -45,7 +45,7 @@ export class Physics {
   get alpha() { return this.acc / this.dt; }
   castDown(x: number, z: number, from = 1000): number | null {
     const ray = new RAPIER.Ray({ x, y: from, z }, { x: 0, y: -1, z: 0 });
-    const hit = this.world.castRay(ray, 3000, true, undefined, groups(G.WHEELRAY, G.TERRAIN | G.PROP));
+    const hit = this.world.castRay(ray, 3000, true, undefined, groups(G.WHEELRAY, G.TERRAIN | G.PROP | G.LOG));
     return hit ? from - hit.timeOfImpact : null;
   }
 }

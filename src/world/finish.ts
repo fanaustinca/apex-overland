@@ -2,7 +2,7 @@
 import { N, V, CELL, HALF, CTRL, HUB, type P2 } from './layout';
 import { Simplex, smoothstep, clamp } from '../core/noise';
 import { biomeWeights } from './layout';
-import { generateBase, SEED, type WorldData } from './gen';
+import { generateBase, carveRivers, SEED, type WorldData } from './gen';
 import { buildRoads, type Road, type Bridge } from './roads';
 
 /** Terrain texture layers (index = texture-array layer). Keep in sync with tools/fetch-assets.mjs TERRAIN. */
@@ -37,10 +37,29 @@ export function generateWorld(log: (s: string) => void = () => {}): World {
   const r = buildRoads(base); lap('roads');
   const w = base as World;
   Object.assign(w, r);
+  carveRivers(base); lap('rivers (fords cut through roads)');
+  easeFords(w);
   w.normals = computeNormals(w.height); lap('normals');
   w.bake = bakeLight(w.height); lap('light bake');
   const { ctrl, surface } = splat(w); w.ctrl = ctrl; w.surface = surface; lap('splat');
   return w;
+}
+
+/** Where roads cross rivers, relax the cut banks into drivable ford ramps. */
+function easeFords(w: World) {
+  const H = w.height, mask = new Uint8Array(V * V);
+  for (let j = 2; j < N - 2; j++) for (let i = 2; i < N - 2; i++) {
+    if (w.roadMask[j * N + i] < 60) continue;
+    // near water?
+    let wet = false;
+    for (let dj = -16; dj <= 16 && !wet; dj += 4) for (let di = -16; di <= 16; di += 4) { const ci = (i + di) >> 1, cj = (j + dj) >> 1; if (ci >= 0 && cj >= 0 && ci < CTRL && cj < CTRL && !Number.isNaN(w.water[cj * CTRL + ci])) { wet = true; break; } }
+    if (wet) for (let dj = -5; dj <= 5; dj++) for (let di = -5; di <= 5; di++) { const jj = j + dj, ii = i + di; if (jj > 0 && ii > 0 && jj < N && ii < N) mask[jj * V + ii] = 1; }
+  }
+  const tmp = new Float32Array(H.length);
+  for (let it = 0; it < 60; it++) {
+    tmp.set(H);
+    for (let j = 1; j < N; j++) for (let i = 1; i < N; i++) { const k = j * V + i; if (mask[k]) H[k] = (tmp[k] * 2 + tmp[k - 1] + tmp[k + 1] + tmp[k - V] + tmp[k + V] + tmp[k - V - 1] + tmp[k - V + 1] + tmp[k + V - 1] + tmp[k + V + 1]) / 10; }
+  }
 }
 
 function computeNormals(h: Float32Array): Uint8Array {

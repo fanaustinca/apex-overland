@@ -56,7 +56,7 @@ export class Grass {
           float road = texture2D(tR, muv).r;
           float lush = c1.r + c0.a * 0.55;                  // grass + forest floor
           float dry = c0.g * 0.5 + c1.a * 0.25 + c2.g * 0.3;   // cracked ground, gravel, dirt
-          float dens = (lush + dry * 0.35) * (1.0 - smoothstep(0.05, 0.3, road)) * (1.0 - c1.g) * (1.0 - c2.r * 0.8);
+          float dens = (lush + dry * 0.35) * (1.0 - smoothstep(0.05, 0.3, road)) * (1.0 - c1.g) * (1.0 - smoothstep(0.12, 0.4, c2.r));
           vec4 nz = texture2D(tN, wp / 23.0);
           dens *= smoothstep(0.15, 0.6, nz.x + 0.25);
           float dist = length(wp - uCam.xz);

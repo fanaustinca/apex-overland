@@ -49,10 +49,16 @@ await session(quality, async (page) => {
   await shot(page, '02-garage-upgrades', `AO.game.profile.coins = 250000; AO.game.ui.openGarage(); for (const k of ['engine','suspension','tires']) AO.game.profile.upgrades[AO.game.player.def.id][k] = 3; AO.game.player.up.plow = 1; AO.game.spawnPlayer('crawler'); AO.game.ui.openGarage(); AO.advance(0.6);`);
   await shot(page, '03-garage-dump-truck-plow', `AO.game.profile.owned.push('dump'); Object.assign(AO.game.profile.upgrades.dump = {...AO.game.profile.upgrades.crawler}, {engine:4, suspension:3, tires:3, plow:3, frame:3}); AO.game.spawnPlayer('dump'); AO.game.ui.openGarage(); AO.game.camYaw = 0.6; AO.advance(0.6);`);
   await page.evaluate(() => AO.game.ui.closePanel());
+  // close-ups of hand-built features
+  await shot(page, '20-bridge-steel-truss', `(() => { const b = AO.game.world.bridges.find((x) => x.id === 'truss'); AO.cam(b.a[0] + 70, b.ha + 6, (b.a[1] + b.b[1]) / 2 - 30, b.a[0], b.ha - 8, (b.a[1] + b.b[1]) / 2); })()`);
+  await shot(page, '21-bridge-stone-arch', `(() => { const b = AO.game.world.bridges.find((x) => x.id === 'arch'); AO.cam(b.a[0] - 80, b.ha - 18, (b.a[1] + b.b[1]) / 2 + 20, b.a[0], b.ha - 14, (b.a[1] + b.b[1]) / 2); })()`);
+  await shot(page, '22-muddy-creek-water', `AO.camG(1180, 4, 60, 1230, 0, -60)`);
+  await shot(page, '23-barn-find-forest-cabin', `(() => { const c = AO.game.props.cabinPos.forest; AO.cam(1520, c.y + 9, -735, c.x, c.y + 3, c.z); })()`);
+  await shot(page, '24-quarry-crusher-and-trailers', `AO.camG(-980, 22, 330, -880, 4, 200)`);
   // 2. biomes + transition
   await shot(page, '04-biome-desert-canyon', `AO.camG(-60, 40, 1080, 260, 6, 1250)`);
   await shot(page, '05-biome-dense-forest', `AO.camG(905, 6, 30, 1060, 3, -60)`);
-  await shot(page, '06-biome-snowy-mountain', `AO.camG(-60, 40, -470, -150, 120, -1300)`);
+  await shot(page, '06-biome-snowy-mountain', `(() => { const r = AO.game.world.roads.find((x) => x.id === 'hub-north'); const p = r.pts[Math.floor(r.pts.length * 0.3)]; AO.camG(p[0] + 120, 25, p[1] + 260, -150, -330, -1500); })()`);
   await shot(page, '07-biome-industrial-quarry', `AO.camG(-880, 30, -40, -1250, -20, -140)`);
   await shot(page, '08-transition-forest-to-desert', `AO.camG(700, 60, 420, 900, 20, 900)`);
   // 3. vehicles: lineup, dump truck plowing trees, the snake articulating

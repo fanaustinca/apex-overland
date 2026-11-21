@@ -29,7 +29,7 @@ export class Water {
       }
       for (let i = 0; i < n - 1; i++) for (let s = 0; s < 4; s++) {
         const a = i * 5 + s, b = a + 1, c = a + 5, d = c + 1;
-        idx.push(a, c, b, b, c, d);
+        idx.push(a, b, c, b, d, c);   // counter-clockwise from above
       }
       const g = new THREE.BufferGeometry();
       g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
@@ -52,15 +52,15 @@ export class Water {
             float e = 0.004;
             float hx = (h(p1 + vec2(e, 0.0)) - h(p1 - vec2(e, 0.0))) + 0.6 * (h(p2 + vec2(e, 0.0)) - h(p2 - vec2(e, 0.0)));
             float hz = (h(p1 + vec2(0.0, e)) - h(p1 - vec2(0.0, e))) + 0.6 * (h(p2 + vec2(0.0, e)) - h(p2 - vec2(0.0, e)));
-            vec3 N = normalize(vec3(-hx * 3.5, 1.0, -hz * 3.5));
+            vec3 N = normalize(vec3(-hx * 5.0, 1.0, -hz * 5.0));
             vec3 V = normalize(cameraPosition - vW);
-            float fres = 0.02 + 0.98 * pow(1.0 - max(dot(N, V), 0.0), 5.0);
+            float fres = (0.02 + 0.98 * pow(1.0 - max(dot(N, V), 0.0), 5.0)) * 0.75;
             vec3 R = reflect(-V, N);
-            vec3 sky = mix(uHorizon, uZenith, pow(max(R.y, 0.0), 0.6)) * 2.2;
+            vec3 sky = mix(uHorizon * 0.8, uZenith, pow(max(R.y, 0.0), 0.5)) * 1.25;
             float spec = pow(max(dot(R, uSun), 0.0), 350.0) * 40.0 + pow(max(dot(R, uSun), 0.0), 24.0) * 0.6;
             float d = clamp(vDepth, 0.0, 3.0);
-            vec3 deep = mix(vec3(0.03, 0.12, 0.13), vec3(0.16, 0.11, 0.06), uMud);
-            vec3 shallow = mix(vec3(0.25, 0.42, 0.38), vec3(0.4, 0.32, 0.2), uMud);
+            vec3 deep = mix(vec3(0.02, 0.09, 0.1), vec3(0.12, 0.08, 0.04), uMud);
+            vec3 shallow = mix(vec3(0.16, 0.3, 0.27), vec3(0.3, 0.23, 0.13), uMud);
             float sunL = max(dot(vec3(0.0, 1.0, 0.0), uSun), 0.0) * 0.8 + 0.4;
             vec3 body = mix(shallow, deep, smoothstep(0.0, 1.6, d)) * sunL * 1.6;
             float foam = smoothstep(0.25, 0.0, d) * smoothstep(0.35, 0.75, h(vUv * 0.3 + vec2(0.0, -uTime * 0.2)));

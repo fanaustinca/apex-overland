@@ -20,17 +20,23 @@ export const BRIDGE_DEFS: { id: string; style: Bridge['style']; x: number; width
 const bN = (x: number): P2 => [x, cz(x) - RIM];
 const bS = (x: number): P2 => [x, cz(x) + RIM];
 
-function switchbacks(): P2[] {
-  const pts: P2[] = [[-20, -250], [-60, -430]];
-  const legs = 8, z0 = -520, z1 = -1330, xl = -330, xr = 70;
-  for (let k = 0; k <= legs; k++) {
-    const z = z0 + (z1 - z0) * k / legs;
-    const left = k % 2 === 0;
-    pts.push([left ? xl + 60 : xr - 60, z + 18]);
-    pts.push([left ? xl : xr, z - 18]);
+/** Switchback legs along x joined by wide semicircular hairpins. Legs step by dz in z. */
+function hairpins(x0: number, xa: number, xb: number, z0: number, dz: number, legs: number): P2[] {
+  const pts: P2[] = [];
+  let x = x0, dir = Math.abs(x0 - xa) < Math.abs(x0 - xb) ? 1 : -1;   // head for the farther end first
+  for (let k = 0; k < legs; k++) {
+    const z = z0 + k * dz, xe = dir > 0 ? xb : xa;
+    for (let t = 0; t <= 1.0001; t += 0.25) pts.push([x + (xe - x) * t, z]);
+    if (k < legs - 1) {
+      const r = Math.abs(dz) / 2, cz2 = z + dz / 2;
+      for (let a = 1; a < 12; a++) { const th = -Math.PI / 2 + a / 12 * Math.PI; pts.push([xe + dir * Math.cos(th) * r * 0.9, cz2 + Math.sign(dz) * Math.sin(th) * r]); }
+    }
+    x = xe; dir = -dir;
   }
-  pts.push([APEX.x + 30, APEX.z + 175]);
   return pts;
+}
+function switchbacks(): P2[] {
+  return [[-20, -250], [-60, -430], ...hairpins(-60, -330, 70, -500, -100, 9), [APEX.x + 30, APEX.z + 175]];
 }
 function spiral(p: { x: number; z: number; r: number; tiers: number; tierW: number }, a0: number, turns: number): P2[] {
   const out: P2[] = [];
@@ -67,19 +73,19 @@ export const ROAD_DEFS: RoadDef[] = [
   { id: 'desert-west-s', kind: 'dirt', width: 8, grade: 0.12, ctrl: [bS(BRIDGES_X[0]), [-820, 1450], [-1000, 1620], [-1250, 1700]] },
   { id: 'desert-east', kind: 'dirt', width: 9, grade: 0.12, ctrl: [[60, 820], [480, 870], [760, 900], bN(BRIDGES_X[2])] },
   { id: 'desert-east-s', kind: 'dirt', width: 9, grade: 0.12, ctrl: [bS(BRIDGES_X[2]), [1080, 1380], [1250, 1600], [1350, 1760]] },
-  { id: 'canyon-floor', kind: 'trail', width: 7, grade: 0.2, bank: 4, ctrl: [[-1150, cz(-1150)], [-800, cz(-800) + 8], [-450, cz(-450) - 5], [-100, cz(-100) + 6], [150, cz(150) - 4], [200, cz(200) + 6]] },
+  { id: 'canyon-floor', kind: 'trail', width: 7, grade: 0.2, bank: 4, ctrl: [...Array.from({ length: 33 }, (_, i) => -1150 + i * 40).map((x) => [x, cz(x) + 7 * Math.sin(x / 75)] as P2), [200, cz(200) + 6]] },
   { id: 'cliff-trail', kind: 'trail', width: 7, grade: 0.15, bank: 5, ctrl: [[200, cz(200) + 6], [250, cz(250) + 24], [330, cz(330) + 42], [430, cz(430) + 60], [520, cz(520) + 86], [600, cz(600) + 130]] },
   { id: 'canyon-entry', kind: 'trail', width: 7, grade: 0.16, bank: 6, ctrl: [[-1400, 900], [-1300, 1000], [-1150, cz(-1150)]] },
   // quarry
   { id: 'pitA-spiral', kind: 'haul', width: 14, grade: 0.1, ctrl: spiral(PITS[0], 0.25, 1.15) },
   { id: 'pitB-road', kind: 'haul', width: 13, grade: 0.09, ctrl: [[-560, -20], [-700, 250], [-820, 430], [PITS[1].x + PITS[1].r - 5, PITS[1].z - 40]] },
   { id: 'pitB-spiral', kind: 'haul', width: 12, grade: 0.1, ctrl: spiral(PITS[1], -0.19, 0.95) },
-  { id: 'quarry-north', kind: 'gravel', width: 10, grade: 0.11, ctrl: [[-820, -60], [-860, -400], [-760, -700], [-620, -980]] },
-  { id: 'haul-south', kind: 'haul', width: 14, grade: 0.09, ctrl: [[PITS[1].x - 120, PITS[1].z + 160], [-1250, 820], [-1400, 980], [-1300, 1000]] },
+  { id: 'peak-descent', kind: 'snow', width: 7, grade: 0.18, ctrl: [[APEX.x + 30, APEX.z + 175], [-250, -1440], [-430, -1405], ...hairpins(-440, -690, -440, -1330, 95, 5)] },
+  { id: 'quarry-north', kind: 'gravel', width: 10, grade: 0.17, ctrl: [[-820, -60], [-860, -400], [-780, -700], [-720, -900], [-694, -950]] },
+  { id: 'haul-south', kind: 'haul', width: 14, grade: 0.09, ctrl: [[-852, 540], [-875, 700], [-1000, 795], [-1180, 795], [-1260, 830], [-1400, 980], [-1300, 1000]] },
   // mountain
-  { id: 'peak-descent', kind: 'snow', width: 7, grade: 0.17, ctrl: [[APEX.x + 30, APEX.z + 175], [-380, -1320], [-560, -1180], [-640, -1050], [-620, -980]] },
   ...CABINS.map((c) => ({ id: 'ruts-' + c.id, kind: 'trail' as RoadKind, width: 2.8, grade: 0.3, bank: 3, ctrl: [c.from, ...c.via, [c.x + Math.sin(c.yaw) * 12, c.z + Math.cos(c.yaw) * 12] as P2] })),
-  { id: 'glacier-ridge', kind: 'snow', width: 7, grade: 0.16, ctrl: [[APEX.x + 30, APEX.z + 175], [150, -1420], [450, -1440], [750, -1390], [1000, -1330], [1080, -1180], [900, -1000], [700, -1080]] },
+  { id: 'glacier-ridge', kind: 'snow', width: 7, grade: 0.19, ctrl: [[APEX.x + 30, APEX.z + 175], [150, -1420], [450, -1440], [750, -1390], [1000, -1330], [1080, -1180], [960, -1010], [870, -915]] },
 ];
 
 export const RAMPS: { x: number; z: number; dir: number; h: number; len: number; w: number }[] = [
@@ -104,6 +110,12 @@ export function buildRoads(data: WorldData): { roads: Road[]; bridges: Bridge[];
     for (let i = 0; i < n; i++) raw[i] = sampleH(data.height, pts[i][0], pts[i][1]);
     // pin bridge ends
     const pin: (number | null)[] = new Array(n).fill(null);
+    // a road that starts or ends on an already-built road is graded to meet it
+    for (const [idx, p] of [[0, pts[0]], [n - 1, pts[n - 1]]] as [number, P2][]) {
+      let best = 10, bh: number | null = null;
+      for (const rd of roads) for (let k = 0; k < rd.pts.length; k += 1) { const d = Math.hypot(rd.pts[k][0] - p[0], rd.pts[k][1] - p[1]); if (d < best) { best = d; bh = rd.h[k]; } }
+      if (bh !== null) pin[idx] = bh;
+    }
     for (const b of bridges) for (const [e, h] of [[b.a, b.ha], [b.b, b.hb]] as [P2, number][]) {
       if (Math.hypot(pts[0][0] - e[0], pts[0][1] - e[1]) < 4) pin[0] = h;
       if (Math.hypot(pts[n - 1][0] - e[0], pts[n - 1][1] - e[1]) < 4) pin[n - 1] = h;
@@ -115,8 +127,8 @@ export function buildRoads(data: WorldData): { roads: Road[]; bridges: Bridge[];
     for (let i = 0; i < n; i++) if (pin[i] !== null) h[i] = pin[i]!;
     const g = def.grade * 3;
     for (let pass = 0; pass < 3; pass++) {
-      for (let i = 1; i < n; i++) h[i] = clamp(h[i], h[i - 1] - g, h[i - 1] + g);
-      for (let i = n - 2; i >= 0; i--) h[i] = clamp(h[i], h[i + 1] - g, h[i + 1] + g);
+      for (let i = 1; i < n; i++) if (pin[i] === null) h[i] = clamp(h[i], h[i - 1] - g, h[i - 1] + g);
+      for (let i = n - 2; i >= 0; i--) if (pin[i] === null) h[i] = clamp(h[i], h[i + 1] - g, h[i + 1] + g);
       for (let i = 0; i < n; i++) if (pin[i] !== null) h[i] = pin[i]!;
     }
     // light smoothing so the profile has no kinks

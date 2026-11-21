@@ -92,7 +92,7 @@ export class Gfx {
         tColor: { value: null }, tDepth: { value: null }, tRays: { value: null },
         uInvVP: { value: new THREE.Matrix4() }, uPrevVP: { value: new THREE.Matrix4() }, uCam: { value: new THREE.Vector3() },
         uSun: { value: sunDir }, uHaze: { value: this.hazeColor }, uSunCol: { value: new THREE.Color(1.0, 0.82, 0.6) },
-        uFogDensity: { value: 0.00042 }, uFogFalloff: { value: 0.0085 }, uExposure: { value: 1 }, uTonemap: { value: 1 },
+        uFogDensity: { value: 0.00032 }, uFogFalloff: { value: 0.0085 }, uExposure: { value: 1 }, uTonemap: { value: 1 },
         uRays: { value: 0 }, uBlur: { value: 0 }, uNear: { value: 0.3 }, uFar: { value: 6000 }, uTime: { value: 0 }, uVignette: { value: 0.22 },
       },
       vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }',
@@ -254,7 +254,7 @@ export class Gfx {
     const cu = this.composite.uniforms;
     cu.tColor.value = color; cu.tDepth.value = this.sceneRT.depthTexture; cu.tRays.value = this.rayA.texture;
     cu.uInvVP.value.copy(vp).invert(); cu.uPrevVP.value.copy(this.prevVP); cu.uCam.value.copy(cam.position);
-    cu.uRays.value = rays * 0.3; cu.uBlur.value = s.motionBlur ? Math.min(1, 0.016 / Math.max(dt, 1e-3)) * 0.55 : 0;
+    cu.uRays.value = rays * 0.18; cu.uBlur.value = s.motionBlur ? Math.min(1, 0.016 / Math.max(dt, 1e-3)) * 0.55 : 0;
     cu.uExposure.value = this.exposure; cu.uTonemap.value = s.tonemap ? 1 : 0; cu.uNear.value = cam.near; cu.uFar.value = cam.far; cu.uTime.value = time;
     const fxaa = s.aa === 'fxaa' || s.aa === 'msaa+fxaa';
     this.blit(this.composite, fxaa ? this.ldrRT : null);
@@ -314,8 +314,8 @@ void main() {
     float rdy = abs(rd.y) < 1e-4 ? 1e-4 : rd.y;
     float fog = uFogDensity * exp(-max(h0, 0.0) * fall) * (1.0 - exp(-dist * rdy * fall)) / (rdy * fall);
     fog = 1.0 - exp(-fog);
-    float sunAmt = pow(max(dot(rd, uSun), 0.0), 6.0);
-    vec3 fogCol = mix(uHaze, uSunCol * 1.15, sunAmt * 0.35);
+    float sunAmt = pow(max(dot(rd, uSun), 0.0), 10.0);
+    vec3 fogCol = mix(uHaze, uSunCol * 1.05, sunAmt * 0.22);
     col = mix(col, fogCol, clamp(fog, 0.0, 0.92));
   }
   col += texture2D(tRays, vUv).rgb * uRays;

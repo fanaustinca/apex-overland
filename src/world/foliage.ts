@@ -10,11 +10,18 @@ import type { World } from './finish';
 import { conifer, redwood, broadleaf, saguaro, needleTexture, leafTexture, type TreeGeo } from './treegeo';
 import { RAPIER, G, groups, type Physics } from '../physics/physics';
 import { assetUrl } from '../core/assets';
+import { GARAGES } from './props';
+import { CABINS } from './roads';
 
 export const enum TK { Pine, Fir, Redwood, Broad, Saguaro }
 const KINDS = 5, VARS = 3;
 const BREAKABLE = [true, true, false, true, true];
 const CELL = 64, GRID = 4096 / CELL;
+const CLEAR: [number, number, number][] = [
+  ...GARAGES.map((g) => [g.x, g.z, g.main ? 60 : 40] as [number, number, number]),
+  ...CABINS.map((c) => [c.x, c.z, 26] as [number, number, number]),
+  [1500, 300, 75], [-900, 230, 70], [-910, -380, 30],
+];
 
 interface Batch { near: THREE.InstancedMesh[]; far: THREE.InstancedMesh[]; geo: TreeGeo }
 interface Log { body: RAPIER.RigidBody; kind: number; v: number; scale: number; rest: number; born: number; tree: number; off: number }
@@ -45,7 +52,8 @@ export class Foliage {
   broken = 0;
   onBreak?: (x: number, y: number, z: number, kind: number) => void;
 
-  constructor(private w: World, private phys: Physics) {
+  private avoid = new Uint8Array(512 * 512);
+  constructor(private w: World, private phys: Physics, avoidPaths: [number, number][][] = []) {
     const cap = 260000;
     this.tx = new Float32Array(cap); this.tz = new Float32Array(cap); this.ty = new Float32Array(cap); this.ts = new Float32Array(cap); this.tr = new Float32Array(cap);
     this.tk = new Uint8Array(cap); this.tv = new Uint8Array(cap); this.alive = new Uint8Array(cap); this.hsel = new Float32Array(cap);
@@ -53,6 +61,11 @@ export class Foliage {
     this.mx = new Float32Array(mcap); this.mz = new Float32Array(mcap); this.my = new Float32Array(mcap); this.ms = new Float32Array(mcap); this.mr = new Float32Array(mcap); this.mk = new Uint8Array(mcap);
     for (let i = 0; i < GRID * GRID; i++) { this.cells.push([]); this.mcells.push([]); }
     this.fixedBody = phys.world.createRigidBody(RAPIER.RigidBodyDesc.fixed());
+    // keep race corridors clear of trees and boulders (8 m cells, ~9 m either side of the racing line)
+    for (const path of avoidPaths) for (const [x, z] of path) {
+      const ci = Math.floor((x + HALF) / 8), cj = Math.floor((z + HALF) / 8);
+      for (let dj = -1; dj <= 1; dj++) for (let di = -1; di <= 1; di++) { const i = ci + di, j = cj + dj; if (i >= 0 && j >= 0 && i < 512 && j < 512) this.avoid[j * 512 + i] = 1; }
+    }
     this.place();
   }
 
@@ -69,6 +82,9 @@ export class Foliage {
       const x = gx + (h1 - 0.5) * STEP * 0.9, z = gz + (h2 - 0.5) * STEP * 0.9;
       if (Math.hypot(x - HUB.x, z - HUB.z) < HUB.r - 10) continue;
       if (PITS.some((p) => Math.hypot(x - p.x, z - p.z) < p.r + 25)) { if (hash2(gx, gz, 21) > 0.04) continue; }
+      if (this.avoid[Math.floor((z + HALF) / 8) * 512 + Math.floor((x + HALF) / 8)]) continue;
+      // keep clearings around buildings and set pieces
+      if (CLEAR.some(([cx, cz, r]) => (x - cx) ** 2 + (z - cz) ** 2 < r * r)) continue;
       biomeWeights(x, z, sx.fbm(x / 1100 + 40, z / 1100 - 40, 3), bw);
       const slope = slopeAt(x, z);
       if (wet(x, z) > 90) continue;
@@ -76,13 +92,13 @@ export class Foliage {
       const n2 = sx.fbm(x / 70, z / 70, 2);
       let dens = 0;
       dens += bw[1] * (clearing < -0.28 ? 0.03 : 0.62 + 0.3 * smoothstep(-0.2, 0.3, n2)) * (slope < 0.25 ? 1 : 0.3);
-      dens += bw[2] * 0.22 * smoothstep(0.2, -0.1, clearing) * (slope < 0.18 ? 1 : 0);
+      dens += bw[2] * 0.26 * smoothstep(0.1, -0.25, clearing) * (slope < 0.16 ? 1 : 0) * smoothstep(0.05, 0.35, n2 + 0.2);
       dens += bw[3] * 0.025;
       dens += bw[0] * 0.012 * (slope < 0.1 ? 1 : 0);
       const hubEdge = 1 - smoothstep(HUB.r + 40, HUB.r + 320, Math.hypot(x, z));
       dens *= 1 - hubEdge * 0.85;
       const y = sampleH(w.height, x, z);
-      if (bw[2] > 0.4 && y > 360) dens *= 0.1;
+      if (bw[2] > 0.4) dens *= 1 - smoothstep(170, 330, y) * 0.95;
       if (h3 < dens) {
         if (nearRoad(x, z, 5)) continue;
         let kind: number;

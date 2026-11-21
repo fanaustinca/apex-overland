@@ -1,6 +1,6 @@
 // Procedural world generation. Pure data (no DOM / three) so it runs in a Web Worker and in node tools.
 import { Simplex, smoothstep, clamp, lerp } from '../core/noise';
-import { NARROWS, N, V, CELL, HALF, CTRL, RIVERS, PITS, HUB, CANYON_X0, CANYON_X1, CANYON_FLOOR, CANYON_WATER, canyonZ, biomeWeights, hubFactor, type P2 } from './layout';
+import { OFFROAD, NARROWS, N, V, CELL, HALF, CTRL, RIVERS, PITS, HUB, CANYON_X0, CANYON_X1, CANYON_FLOOR, CANYON_WATER, canyonZ, biomeWeights, hubFactor, type P2 } from './layout';
 
 export const SEED = 1337;
 
@@ -19,6 +19,29 @@ function terrace(t: number, steps: number, sharp = 0.3): number {
   return (i + smoothstep(0.5 - sharp, 0.5 + sharp, f)) / steps;
 }
 
+// corridor mask (8 m grid, blurred) along the off-road race lines: mesas give way to passes there
+const CM = 512;
+let corridor: Float32Array | null = null;
+function buildCorridor() {
+  const m = new Float32Array(CM * CM);
+  for (const lines of Object.values(OFFROAD)) for (const line of lines) for (let k = 0; k < line.length - 1; k++) {
+    const [ax, az] = line[k], [bx, bz] = line[k + 1], L = Math.hypot(bx - ax, bz - az);
+    for (let t = 0; t <= L; t += 4) { const x = ax + (bx - ax) * t / L, z = az + (bz - az) * t / L; const i = Math.floor((x + HALF) / 8), j = Math.floor((z + HALF) / 8); if (i >= 0 && j >= 0 && i < CM && j < CM) m[j * CM + i] = 1; }
+  }
+  // dilate + blur so the pass is ~40 m wide with soft shoulders
+  for (let pass = 0; pass < 4; pass++) {
+    const src = m.slice();
+    for (let j = 1; j < CM - 1; j++) for (let i = 1; i < CM - 1; i++) { const k = j * CM + i; m[k] = Math.max(src[k], (src[k - 1] + src[k + 1] + src[k - CM] + src[k + CM]) * 0.3); }
+  }
+  return m;
+}
+function corridorAt(x: number, z: number) {
+  corridor ??= buildCorridor();
+  const fx = (x + HALF) / 8 - 0.5, fz = (z + HALF) / 8 - 0.5, i = Math.max(0, Math.min(CM - 2, Math.floor(fx))), j = Math.max(0, Math.min(CM - 2, Math.floor(fz))), u = fx - i, v = fz - j;
+  const c = corridor;
+  return Math.min(1, (c[j * CM + i] * (1 - u) + c[j * CM + i + 1] * u) * (1 - v) + (c[(j + 1) * CM + i] * (1 - u) + c[(j + 1) * CM + i + 1] * u) * v);
+}
+
 export function desertH(x: number, z: number): number {
   let h = 36 + 5 * sx.fbm(x / 520, z / 520, 4);
   const field = smoothstep(0.0, 0.35, s2.fbm(x / 900 + 5, z / 900 - 2, 3));
@@ -26,7 +49,7 @@ export function desertH(x: number, z: number): number {
   const dune = Math.pow(1 - Math.abs(Math.sin(u)), 2.2);
   h += field * (dune * 13 + 2.5 * s3.fbm(x / 60, z / 60, 2));
   const m = s3.fbm(x / 460 + 11, z / 460 - 3, 4);
-  const plate = smoothstep(0.28, 0.33, m);
+  const plate = smoothstep(0.28, 0.33, m) * (1 - corridorAt(x, z));
   if (plate > 0) h += plate * (34 + 22 * terrace(clamp((m - 0.28) * 4, 0, 1), 3, 0.2)) * (1 - field * 0.6);
   return h;
 }
@@ -41,7 +64,11 @@ export function snowH(x: number, z: number): number {
   const dm = Math.hypot(x - APEX.x, (z - APEX.z) * 1.15);
   const cone = Math.max(0, 1 - Math.max(dm, 55) / 1150);
   const rug = s3.ridged(x / 380, z / 380, 6);
-  const massif = APEX.h * Math.pow(cone, 1.45) * (0.8 + 0.34 * rug * smoothstep(0.05, 0.5, 1 - cone) * (1 - 0.7 * (1 - smoothstep(200, 420, Math.abs(x + 40))) * smoothstep(-1500, -1300, z)));
+  const corr = (1 - smoothstep(200, 420, Math.abs(x + 40))) * smoothstep(-1500, -1300, z);
+  let massif = APEX.h * Math.pow(cone, 1.45) * (0.8 + 0.42 * rug * smoothstep(0.05, 0.5, 1 - cone) * (1 - 0.75 * corr));
+  // the summit pyramid: a steep rock horn above the summit station
+  const dp = Math.hypot(x - APEX.x, (z - APEX.z - 40) * 1.1);
+  massif += 270 * Math.pow(Math.max(0, 1 - dp / 430), 1.7) * (0.85 + 0.3 * s2.ridged(x / 160, z / 160, 4));
   // Glacier Ridge running east from the summit
   const ax = APEX.x, az = APEX.z, bx = 1150, bz = -1320;
   const dx = bx - ax, dz = bz - az, L2 = dx * dx + dz * dz;
@@ -90,7 +117,7 @@ export function generateBase(): WorldData {
           const taper = smoothstep(CANYON_X0, CANYON_X0 + 260, x) * (1 - smoothstep(CANYON_X1 - 260, CANYON_X1, x));
           let floor = CANYON_FLOOR + 0.6 + 0.4 * s3.fbm(x / 30, z / 30, 2);
           const ch = Math.abs(z - cz) / 10;
-          if (ch < 1) floor = Math.min(floor, CANYON_WATER - 0.55 + ch * ch * 0.55);
+          if (ch < 1.4) floor = Math.min(floor, CANYON_WATER - 0.6 + Math.min(1, ch * ch) * 0.9);
           let target: number;
           if (d < half) target = floor;
           else {
@@ -123,7 +150,6 @@ export function generateBase(): WorldData {
   }
   erode(height);
   const data: WorldData = { height, biome: new Float32Array(CTRL * CTRL * 4), water: new Float32Array(CTRL * CTRL).fill(NaN), wet: new Uint8Array(CTRL * CTRL), rivers: [] };
-  carveRivers(data);
   return data;
 }
 
@@ -193,7 +219,7 @@ export function spline(ctrl: P2[], step: number): P2[] {
   return resample(dense, step);
 }
 
-function carveRivers(data: WorldData) {
+export function carveRivers(data: WorldData) {
   const { height } = data;
   for (const r of RIVERS) {
     const pts = spline(r.pts, 4);
@@ -204,7 +230,7 @@ function carveRivers(data: WorldData) {
     for (let i = 0; i < n; i++) {
       let m = 1e9;
       for (let k = -3; k <= 3; k++) { const p = pts[clamp(i + k, 0, n - 1)]; m = Math.min(m, sampleH(height, p[0], p[1])); }
-      run = Math.min(run, m - 1.6);
+      run = Math.min(run, m - 1.0);
       lvl[i] = run;
     }
     // ease the steps so the surface reads as a flowing slope
@@ -212,7 +238,7 @@ function carveRivers(data: WorldData) {
     data.rivers.push({ id: r.id, pts, lvl: Array.from(lvl), width: r.width, mud: r.mud });
     const half = r.width / 2, bank = 16;
     carveAlong(data, pts, (i, u) => lvl[i] + (lvl[Math.min(i + 1, n - 1)] - lvl[i]) * u, half, bank, (d, t, level) => {
-      const deep = r.depth * (1 + 0.75 * Math.max(0, Math.sin(t / 85 + 1)));
+      const deep = r.depth * (0.55 + 1.0 * smoothstep(0.72, 0.95, Math.sin(t / 110 + 1)));
       if (d < half) return level - deep * (1 - (d / half) ** 2) - 0.15;
       return null;
     }, true, r.mud);

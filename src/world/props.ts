@@ -64,7 +64,7 @@ export class Props {
       white: new THREE.MeshStandardMaterial({ color: 0xe8e8e4, roughness: 0.6 }),
       dark: new THREE.MeshStandardMaterial({ color: 0x1c1d1f, roughness: 0.7 }),
       glass: new THREE.MeshPhysicalMaterial({ color: 0x223344, metalness: 0.3, roughness: 0.05, envMapIntensity: 2 }),
-      stone: await t('rock_face_03' in {} ? 'concrete_floor_painted' : 'concrete_floor_painted', 1, 0xb8a080),
+      stone: await t('red_sandstone_wall', 1, 0xd8c0a0), sandstone: await t('red_sandstone_wall', 1, 0xffffff),
       wood: new THREE.MeshStandardMaterial({ color: 0x6b5236, roughness: 0.9 }),
       log: new THREE.MeshStandardMaterial({ color: 0x7a5a3a, roughness: 0.95 }),
       emissive: new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xffe4b0, emissiveIntensity: 2.5 }),
@@ -103,7 +103,7 @@ export class Props {
       const L = Math.hypot(bx - ax, bz - az), yaw = Math.atan2(bx - ax, bz - az);
       const seg = Math.ceil(L / 8);
       const dirx = (bx - ax) / L, dirz = (bz - az) / L;
-      const deckMat = b.style === 'trestle' ? M.planks : b.style === 'arch' ? M.stone : M.concrete;
+      const deckMat = b.style === 'trestle' ? M.planks : b.style === 'arch' ? M.sandstone : M.concrete;
       for (let i = 0; i < seg; i++) {
         const t0 = i / seg, t1 = (i + 1) / seg, tm = (t0 + t1) / 2;
         const x = ax + (bx - ax) * tm, z = az + (bz - az) * tm;
@@ -157,17 +157,25 @@ export class Props {
           }
         }
       } else {
-        // stone arch: voussoir ribbon following a parabola under the deck
-        const n = 40;
-        for (let i = 0; i < n; i++) {
-          const t = (i + 0.5) / n, x = ax + (bx - ax) * t, z = az + (bz - az) * t, yd = b.ha + (b.hb - b.ha) * t;
-          const span = 1 - Math.pow(2 * t - 1, 2);
-          const y = CANYON_FLOOR + 2 + (yd - CANYON_FLOOR - 5) * Math.sqrt(span);
-          const slope = Math.atan2(-(8 * t - 4) * (yd - CANYON_FLOOR - 5) / (2 * Math.sqrt(Math.max(0.02, span))) / L, 1);
-          const blk = this.add(new THREE.BoxGeometry(b.width - 1, 2.2, L / n + 0.3), M.stone, x, y, z, yaw);
-          blk.rotation.set(slope, yaw, 0, 'YXZ');
-          if (i % 4 === 2 && yd - y > 2) this.add(new THREE.BoxGeometry(b.width - 2, yd - y - 1.2, 1.2), M.stone, x, (yd + y) / 2 - 0.6, z, yaw);
-        }
+        // stone arch: one solid-spandrel arch, extruded across the deck, springing from both canyon walls
+        const sh = new THREE.Shape();
+        const deckY = (t: number) => b.ha + (b.hb - b.ha) * t - 1.2;
+        const crown = Math.min(b.ha, b.hb) - 4.5, spring = CANYON_FLOOR + 7;
+        const N2 = 40;
+        sh.moveTo(0, deckY(0));
+        for (let i = 1; i <= N2; i++) sh.lineTo(L * i / N2, deckY(i / N2));
+        // down the far wall, then the intrados (parabola) back, then up the near wall
+        sh.lineTo(L, spring - 6);
+        for (let i = N2; i >= 0; i--) { const t = i / N2, u = 0.06 + 0.88 * t; const y = spring + (crown - spring) * (1 - Math.pow(2 * t - 1, 2)); sh.lineTo(L * u, y); }
+        sh.lineTo(0, spring - 6);
+        sh.closePath();
+        const ag = new THREE.ExtrudeGeometry(sh, { depth: b.width - 0.6, bevelEnabled: true, bevelThickness: 0.25, bevelSize: 0.25, bevelSegments: 2, curveSegments: 4 });
+        ag.translate(0, 0, -(b.width - 0.6) / 2);
+        // UVs in metres for the stone texture
+        const uv = ag.attributes.uv as THREE.BufferAttribute; for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) / 4, uv.getY(i) / 4);
+        const am = new THREE.Mesh(ag, M.sandstone);
+        am.position.set(ax, 0, az); am.rotation.y = yaw - Math.PI / 2;
+        this.group.add(am);
       }
       void dirx; void dirz;
     }

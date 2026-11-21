@@ -4,7 +4,15 @@
 
 ▶ **Play: https://fanaustinca.github.io/apex-overland/**
 
-![Ultra Realism preset](docs/16-graphics-ultra-realism.jpg)
+![Canyon Breakout race start](docs/14-race-canyon-breakout.jpg)
+
+| | |
+|---|---|
+| ![Dense Forest](docs/05-biome-dense-forest.jpg) | ![Desert Canyon](docs/04-biome-desert-canyon.jpg) |
+| ![Snowy Mountain](docs/06-biome-snowy-mountain.jpg) | ![Industrial Quarry](docs/07-biome-industrial-quarry.jpg) |
+| ![Dump truck plowing through the forest](docs/11-dump-truck-plowing-trees.jpg) | ![The Snake 12x12 articulating](docs/12-the-snake-12x12-articulating.jpg) |
+| ![Garage upgrades](docs/02-garage-upgrades.jpg) | ![Fast-travel map](docs/13-teleport-map.jpg) |
+| ![Low-Poly preset](docs/16-graphics-low-poly.jpg) | ![Ultra Realism preset](docs/16-graphics-ultra-realism.jpg) |
 
 ## The world
 One seamless **4 km × 4 km** world (2 m heightfield, 4.2 M samples, generated in a Web Worker at load) with 200–400 m noise-warped transition belts between four biomes, meeting at the **Central Hub Garage**:
@@ -52,6 +60,7 @@ npm run test:e2e       # headless Chromium functional suite (SwiftShader; GPU=1 
 npm run shots          # visual verification → ./screenshots/
 npx tsx tools/sim.ts hub-east crawler   # headless vehicle/AI tuning on a road
 npx tsx tools/map.ts map.png            # top-down render of the generated world
+npx tsx tools/routes.ts                 # scan every race route for impassable grade spikes
 node tools/fetch-assets.mjs             # (re)download + pack the CC0 assets
 ```
 Debug API in the browser console: `AO.state()`, `AO.race('rim-jumper')`, `AO.autopilot()`, `AO.game.teleportGarage('desert')`.

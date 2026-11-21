@@ -73,7 +73,7 @@ export class Chassis {
 export class Vehicle {
   parts: Chassis[] = [];
   joints: RAPIER.ImpulseJoint[] = [];
-  rpm = 900; gear = 1; nitro = 1; boosting = false; damage = 0; stalled = 0; airTime = 0; lastLandV = 0;
+  rpm = 900; gear = 1; nitro = 1; boosting = false; damage = 0; stalled = -2; airTime = 0; lastLandV = 0;
   plowHits = 0; inWater = 0; onGround = false; flippedT = 0; throttle = 0; brakeOn = false; mass: number;
   lastLanding = 0; axleDamage = 0; lastAir = 0;
   constructor(public phys: Physics, public def: VehicleDef, public up: Upgrades, public st: Stats, pos: V3, yaw: number) {
@@ -210,7 +210,7 @@ export class Vehicle {
       if (waterDepth > 0.15) {
         const k = Math.min(1, waterDepth / 1.2) * 0.9;
         b.applyImpulse({ x: -lv.x * d.mass * k * dt, y: 0, z: -lv.z * d.mass * k * dt }, true);
-        if (pi === 0 && !st.snorkel && waterDepth > d.intake * 0.85 + st.rideLift) this.stalled = 2.5;
+        if (pi === 0 && !st.snorkel && waterDepth > d.intake * 0.85 + st.rideLift && this.stalled <= -1.5) this.stalled = 2.0;   // stall, re-fire, maybe stall again
       }
       if (pi === 0) this.inWater = waterDepth;
       // stability: keep it on its wheels (arcade anti-roll), air control
@@ -274,7 +274,7 @@ export class Vehicle {
       this.airTime = 0; this.lastLandV = 0;
     }
     this.onGround = anyContact;
-    if (this.stalled > 0 && this.inWater < 0.1) this.stalled -= dt;
+    if (this.stalled > -1.5) this.stalled -= dt;
     const upv = this.main.up();
     this.flippedT = upv.y < 0.3 && aspd < 3 ? this.flippedT + dt : 0;
   }
@@ -293,7 +293,7 @@ export class Vehicle {
       p.body.setRotation({ x: 0, y: Math.sin(yaw / 2), z: 0, w: Math.cos(yaw / 2) }, true);
       p.body.setLinvel({ x: 0, y: 0, z: 0 }, true); p.body.setAngvel({ x: 0, y: 0, z: 0 }, true);
     });
-    this.flippedT = 0; this.stalled = 0; this.airTime = 0; this.lastLandV = 0;
+    this.flippedT = 0; this.stalled = -2; this.airTime = 0; this.lastLandV = 0;
   }
   destroy() { for (const j of this.joints) this.phys.world.removeImpulseJoint(j, true); for (const p of this.parts) p.destroy(); }
 }

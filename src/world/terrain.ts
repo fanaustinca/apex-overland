@@ -283,6 +283,11 @@ if (rockiness > 0.0) {
   for (int i = 0; i < 12; i++) W[i] *= (1.0 - rockiness);
   W[rk] += rockiness;
 }
+// high-altitude snow settles on everything except true cliffs
+float alt = smoothstep(170.0, 300.0, vTW.y + (macro.y - 0.5) * 70.0) * (1.0 - road);
+float snowCap = alt * smoothstep(0.42, 0.7, slopeY + (micro.x - 0.5) * 0.35);
+if (snowCap > 0.0) { for (int i = 0; i < 12; i++) W[i] *= (1.0 - snowCap); W[5] += snowCap; }
+float alpine = smoothstep(90.0, 200.0, vTW.y) * W[6];
 #ifdef LOWPOLY
   vec3 fN = normalize(cross(dFdx(vTW), dFdy(vTW)));
   vec3 acc = vec3(0.0); float ws = 0.0;
@@ -337,6 +342,8 @@ if (rockiness > 0.0) {
     albedo += A[i].rgb * b; nrA += n * b; ws += b;
   }
   albedo /= max(ws, 1e-4); nrA /= max(ws, 1e-4);
+  // cold grey alpine rock
+  albedo = mix(albedo, vec3(dot(albedo, vec3(0.3, 0.55, 0.15))) * vec3(0.92, 0.96, 1.04), alpine * 0.75);
   // macro colour variation keeps kilometre-scale ground from looking uniform
   albedo *= 0.86 + 0.28 * macro.x;
   albedo *= mix(vec3(1.0), vec3(1.45, 1.32, 1.18), road * float(kind == 2 || kind == 5));

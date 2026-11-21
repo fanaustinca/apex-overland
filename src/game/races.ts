@@ -1,7 +1,7 @@
 // Point-to-point race definitions built on the road network, plus suggested alternative GPS routes.
 import type { Road } from '../world/roads';
 import type { P2 } from '../world/layout';
-import { canyonZ as cz, PITS } from '../world/layout';
+import { canyonZ as cz, PITS, OFFROAD } from '../world/layout';
 import { resample } from '../world/gen';
 
 export interface RaceDef { id: string; name: string; biome: number | 'marathon'; desc: string; reward: number; path: P2[]; alts: P2[][]; cps: P2[]; rivals: number }
@@ -58,14 +58,12 @@ export function buildRaces(roads: Road[]): RaceDef[] {
   };
   // ---------------- Desert Canyon ----------------
   add('canyon-breakout', 'Canyon Breakout', 0, 'Start on the canyon floor, splash through the river, claw up the cliff trail and sprint across the dunes.', 2600,
-    B(['canyon-floor@0.45:1', 'cliff-trail', [[640, cz(640) + 200], [700, 1480], [760, 1700]]]), 300,
-    [[[200, cz(200) + 6], [330, cz(330) + 20], [640, cz(640) + 200]]]);
+    B(['canyon-floor@0.45:1', 'cliff-trail', OFFROAD['canyon-breakout'][0]]), 300,
+    [[[200, cz(200) + 6], [330, cz(330) + 20], [585, 1550]]]);
   add('rim-jumper', 'Rim Jumper', 0, 'Hug the north rim and launch the rock ramps across the canyon narrows. Come up short and you will be climbing out.', 3000,
-    B([[[-900, cz(-900) - 120], [-650, cz(-650) - 110], [-460, cz(-460) - 95], [-350, cz(-350) - 75], [-350, cz(-350) - 30], [-350, cz(-350) + 60], [-200, cz(-200) + 110], [60, cz(60) + 105], [150, cz(150) + 100]],
-      [[150, cz(150) - 100], [300, cz(300) - 110], [470, cz(470) - 90], [560, cz(560) - 75], [560, cz(560) - 30], [560, cz(560) + 60], [700, cz(700) + 125], [860, cz(860) + 160]]]), 260,
-    [[[-350, cz(-350) - 75], [-80, cz(-80) - 100], [150, cz(150) - 100]]], 3);
+    B(OFFROAD['rim-jumper']), 260, [[[-560, cz(-560) - 150], [-80, cz(-80) - 100], [150, cz(150) - 100]]], 3);
   add('dune-basher', 'Dune Basher', 0, 'No roads, no rules: flat-out across the southern dune sea.', 2200,
-    B([[[-1100, 1560], [-860, 1740], [-560, 1610], [-250, 1790], [60, 1660], [380, 1800], [700, 1640], [1000, 1770], [1250, 1650]]]), 330, [[[-1100, 1560], [1250, 1650]]]);
+    B(OFFROAD['dune-basher']), 330, [[[-1100, 1555], [1250, 1600]]]);
   // ---------------- Dense Forest ----------------
   add('timberline-plow', 'Timberline Plow', 1, 'A narrow trail through the thickest woods. Bring a dozer plow and carve your own line.', 2800,
     B(['timber-trail']), 260, [], 4, 40);
@@ -77,7 +75,7 @@ export function buildRaces(roads: Road[]): RaceDef[] {
   add('avalanche-switchbacks', 'Avalanche Switchbacks', 2, 'Eight icy hairpins up the face of Mount Apex. Spiked tyres recommended.', 3000,
     B(['hub-north@0.05:1']), 320, [], 4, 120);
   add('peak-descent', 'Peak Descent', 2, 'Drop off the summit down the west face. The snow chutes are faster... if you survive them.', 2800,
-    B(['peak-descent', '-quarry-north@0:0.7']), 300, [[[-120, -1385], [-500, -1050], [-760, -700]]]);
+    B(['peak-descent', '-quarry-north@0.25:1']), 300, [[[-120, -1385], [-500, -1050], [-760, -700]]]);
   add('glacier-ridge', 'Glacier Ridge', 2, 'Ride the knife-edge ridge east from the summit with a drop on both sides.', 2900,
     B(['glacier-ridge@0:0.72']), 300);
   // ---------------- Industrial Quarry ----------------
@@ -86,7 +84,7 @@ export function buildRaces(roads: Road[]): RaceDef[] {
   add('crusher-circuit', 'Crusher Circuit', 3, 'Round the crusher plant, past the site trailers (crushable!) to the quarry works.', 2300,
     B(['-pitB-road@0.2:1', 'hub-west@0.6:0.95', 'quarry-north@0:0.45']), 250);
   add('haul-road-havoc', 'Haul Road Havoc', 3, 'Out of Pit B and down the haul road into the canyon mouth.', 2500,
-    B(['-pitB-spiral', [[PITS[1].x - 60, PITS[1].z + 120]], 'haul-south', 'canyon-entry']), 280);
+    B(['-pitB-spiral', 'haul-south', 'canyon-entry']), 280);
   // ---------------- Cross-biome marathons ----------------
   add('summit-to-sands', 'Summit to Sands', 'marathon', 'Snow to sand: down the switchbacks, through the hub, over the steel bridge into the desert.', 7000,
     B(['-hub-north', 'hub-south', [[150, cz(150) - 100], [150, cz(150) + 100]], 'south-desert']), 450, [], 5, 200);

@@ -105,7 +105,8 @@ export class Game {
     await this.terrain.loadLayers((f) => progress('Loading photo-scanned terrain materials', 0.45 + f * 0.2));
     this.gfx.scene.add(this.terrain.group);
     progress('Growing forests', 0.68);
-    this.foliage = new Foliage(this.world, this.phys);
+    this.races = buildRaces(this.world.roads);
+    this.foliage = new Foliage(this.world, this.phys, this.races.filter((r) => r.id !== 'timberline-plow').map((r) => r.path));
     await this.foliage.build(loadTex);
     this.gfx.scene.add(this.foliage.group);
     this.foliage.onBreak = (x, y, z) => { for (let i = 0; i < 14; i++) this.particles.emit(P.chips, x, y + Math.random() * 3, z, 0, 0, 0, 1, 1.5); this.particles.emit(P.dust, x, y, z, 0, 0, 0, 6, 2); this.audio.crack(); this.profile.logsSmashed++; };
@@ -120,7 +121,6 @@ export class Game {
     this.gfx.scene.add(this.props.group);
     this.props.trailers.forEach((t, i) => this.handleToTrailer.set(t.col.handle, i));
     this.particles = new Particles(this.gfx.scene);
-    this.races = buildRaces(this.world.roads);
     progress('Fuelling up', 0.92);
     this.applySettings(settings);
     this.ui = new UI(this);
@@ -160,7 +160,9 @@ export class Game {
   unregister(e: VehicleEntity) { for (const part of e.v.parts) for (const c of part.colliders) this.handleToEntity.delete(c.handle); }
   yawOf(e: VehicleEntity) { const f = e.v.main.forward(); return Math.atan2(f.x, f.z); }
   place(e: VehicleEntity, x: number, z: number, yaw: number) {
-    const st = e.v.st; e.v.reset({ x, y: this.ground(x, z) + st.wheelR + e.def.susp.rest + 0.6, z }, yaw); e.snapshot(); e.snapshot();
+    const st = e.v.st;
+    const top = Math.max(this.ground(x, z), this.phys.castDown(x, z, this.ground(x, z) + 60) ?? -1e9);
+    e.v.reset({ x, y: top + st.wheelR + e.def.susp.rest + 0.6, z }, yaw); e.snapshot(); e.snapshot();
   }
   teleport(x: number, z: number, yaw: number) {
     this.place(this.player, x, z, yaw);
@@ -204,7 +206,7 @@ export class Game {
     const names = ['Rex "Gravel" Duarte', 'Mika Sandvik', 'Juno Okafor', 'Tess Ramirez', 'Kai Brennan', 'Ola Lindqvist'];
     for (let k = 0; k < def.rivals; k++) {
       const vd = pool[(k * 7 + id.length) % pool.length] ?? VEH.pickup;
-      const up: Upgrades = { ...STOCK, engine: 1 + Math.min(3, Math.floor(k / 2) + (this.player.up.engine > 2 ? 1 : 0)), suspension: 2, tires: 2, compound: def.biome === 2 ? 'snow' : def.biome === 0 ? 'sand' : def.biome === 1 ? 'mud' : 'allterrain' };
+      const up: Upgrades = { ...STOCK, engine: 1 + Math.min(3, Math.floor(k / 2) + (this.player.up.engine > 2 ? 1 : 0)), suspension: 2, tires: 2, compound: def.biome === 2 ? 'snow' : def.biome === 0 ? 'sand' : def.biome === 1 ? 'mud' : 'allterrain', snorkel: def.id === 'muddy-creek' ? 1 : 0 };
       const g = grid(k + 1);
       const e = new VehicleEntity(this.phys, vd, up, { x: g.x, y: this.ground(g.x, g.z) + stats(vd, up).wheelR + vd.susp.rest + 0.5, z: g.z }, g.yaw, this.gfx.scene);
       e.name = names[k % names.length];
@@ -437,6 +439,15 @@ export class Game {
       if (this.race) this.updateRace(dt);
       else if (this.mode === 'drive') this.freeRoam(dt);
       if (this.player.v.flippedT > 4 && !this.race) { this.recover(); this.ui.toast('Flipped back onto your wheels', 'warn'); }
+      // safety net: nothing may tunnel under the heightfield or run away numerically
+      for (const e of ents) {
+        const p = e.v.position(), lv = e.v.body.linvel();
+        if (p.y < this.ground(p.x, p.z) - 4 || Math.hypot(lv.x, lv.y, lv.z) > 110 || !Number.isFinite(p.y)) {
+          if (e.driver) { const rp = e.driver.resetPose(); this.place(e, rp.x, rp.z, rp.yaw); }
+          else if (this.race && e === this.player) { const r = this.race.player; this.place(e, r.lastCp.x, r.lastCp.z, r.lastYaw); }
+          else this.place(e, Number.isFinite(p.x) ? p.x : 0, Number.isFinite(p.z) ? p.z : 0, this.yawOf(e));
+        }
+      }
       this.profile.distance += Math.abs(this.player.v.speed()) * dt;
     }
     const alpha = this.phys.alpha;

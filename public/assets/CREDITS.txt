@@ -19,6 +19,7 @@ All textures and models in this folder are from Poly Haven (https://polyhaven.co
 - bark_brown_02: https://polyhaven.com/a/bark_brown_02
 - metal_plate: https://polyhaven.com/a/metal_plate
 - concrete_floor_painted: https://polyhaven.com/a/concrete_floor_painted
+- red_sandstone_wall: https://polyhaven.com/a/red_sandstone_wall
 - namaqualand_boulder_02: https://polyhaven.com/a/namaqualand_boulder_02
 - namaqualand_boulder_05: https://polyhaven.com/a/namaqualand_boulder_05
 - boulder_01: https://polyhaven.com/a/boulder_01
@@ -33,4 +34,3 @@ All textures and models in this folder are from Poly Haven (https://polyhaven.co
 - wooden_barrels_01: https://polyhaven.com/a/wooden_barrels_01
 - wooden_crate_01: https://polyhaven.com/a/wooden_crate_01
 - barrel_03: https://polyhaven.com/a/barrel_03
-- kloofendal_43d_clear (HDRI): https://polyhaven.com/a/kloofendal_43d_clear

@@ -19,7 +19,7 @@ export const TERRAIN = [
   'dry_riverbed_rock', 'gravel_floor', 'muddy_tracks', 'stony_dirt_path', 'rock_face_03', 'worn_asphalt',
 ];
 // Surface materials for props, cabins and vehicles: diffuse + normal + arm.
-export const MATERIALS = ['weathered_planks', 'rusty_metal_02', 'rusty_corrugated_iron', 'pine_bark', 'bark_brown_02', 'metal_plate', 'concrete_floor_painted'];
+export const MATERIALS = ['weathered_planks', 'rusty_metal_02', 'rusty_corrugated_iron', 'pine_bark', 'bark_brown_02', 'metal_plate', 'concrete_floor_painted', 'red_sandstone_wall'];
 // id -> simplify ratio
 // HDRI for image-based lighting: public/assets/hdri/kloofendal_43d_clear_1k.hdr (https://polyhaven.com/a/kloofendal_43d_clear)
 export const MODELS = {

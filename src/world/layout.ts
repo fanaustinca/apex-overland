@@ -20,13 +20,13 @@ export const CANYON_X0 = -1320, CANYON_X1 = 1320;
 /** x positions where the canyon pinches to a jumpable gap (rock ramps sit on the north rim). */
 export const NARROWS = [-350, 560];
 export const BRIDGES_X = [-700, 150, 1000];
-export const CANYON_FLOOR = 3.0, CANYON_WATER = 3.9;
+export const CANYON_FLOOR = 3.6, CANYON_WATER = 3.9;
 
 /** Rivers as polylines (x,z), width at water surface, water level is computed from the carved bed. */
 export interface River { id: string; pts: P2[]; width: number; depth: number; mud: boolean }
 export const RIVERS: River[] = [
   // Muddy Creek: snowmelt from the north-east, winding south through the forest
-  { id: 'creek', width: 14, depth: 1.0, mud: true, pts: [[640, -1500], [820, -1180], [1010, -900], [1150, -560], [1230, -220], [1180, 120], [1260, 430], [1430, 700], [1560, 980], [1700, 1250], [1900, 1420]] },
+  { id: 'creek', width: 14, depth: 1.0, mud: true, pts: [[860, -1130], [1010, -900], [1150, -560], [1230, -220], [1180, 120], [1260, 430], [1430, 700], [1560, 980], [1700, 1250], [1900, 1420]] },
 ];
 
 export interface Pit { x: number; z: number; r: number; tiers: number; tierH: number; tierW: number }
@@ -36,6 +36,19 @@ export const PITS: Pit[] = [
 ];
 
 export const HUB = { x: 0, z: 0, r: 190, h: 24 };
+
+const cz = (x: number) => canyonZ(x);
+/** Off-road racing lines: mesas are eroded out of a corridor along these so every race is drivable. */
+export const OFFROAD: Record<string, P2[][]> = {
+  'rim-jumper': [
+    [[-900, cz(-900) - 120], [-650, cz(-650) - 110], [-560, cz(-560) - 150], [-450, cz(-450) - 150], [-350, cz(-350) - 75], [-350, cz(-350) - 30]],
+    [[-350, cz(-350) + 60], [-200, cz(-200) + 110], [60, cz(60) + 105], [150, cz(150) + 100]],
+    [[150, cz(150) - 100], [300, cz(300) - 140], [470, cz(470) - 110], [560, cz(560) - 75], [560, cz(560) - 30]],
+    [[560, cz(560) + 60], [700, cz(700) + 125], [860, cz(860) + 160]],
+  ],
+  'dune-basher': [[[-1100, 1555], [-780, 1560], [-500, 1640], [-250, 1580], [50, 1560], [300, 1640], [600, 1580], [900, 1640], [1250, 1600]]],
+  'canyon-breakout': [[[600, cz(600) + 130], [590, 1450], [585, 1550], [640, 1640], [760, 1700]]],
+};
 
 /** Soft-max biome weights with organic, noise-warped 300 m transition belts. */
 export function biomeWeights(x: number, z: number, warp: number, out: Float32Array | number[]): void {
