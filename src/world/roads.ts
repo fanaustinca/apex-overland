@@ -1,12 +1,13 @@
 // Road network: authored control points, splined, graded (max slope) and carved into the heightmap.
-import { canyonZ, BRIDGES_X, NARROWS, PITS, HALF, CELL, N, V, CTRL, CANYON_X0, CANYON_X1, GARAGES, type P2 } from './layout';
-import { spline, sampleH, carveAlong, distToPolylineFast, type WorldData, APEX } from './gen';
-import { clamp, smoothstep } from '../core/noise';
+import { canyonZ, BRIDGES_X, NARROWS, PITS, HALF, CELL, N, V, CTRL, CANYON_X0, CANYON_X1, GARAGES, LAKES, type P2 } from './layout';
+import { spline, resample, sampleH, carveAlong, distToPolylineFast, type WorldData, APEX } from './gen';
+import { clamp, smoothstep, Simplex } from '../core/noise';
 
 export type RoadKind = 'asphalt' | 'dirt' | 'gravel' | 'snow' | 'trail' | 'haul';
 /** bumps: [fraction along road, height, kicker length, table length, landing length] (metres) */
-export interface RoadDef { id: string; kind: RoadKind; width: number; ctrl: P2[]; grade: number; bank?: number; earth?: boolean; bumps?: [number, number, number, number, number][] }
-export interface Road extends RoadDef { pts: P2[]; h: Float32Array; len: number; bridged: Uint8Array }
+/** ctrl: waypoints. Unless `fixed`, the road between waypoints is routed across the terrain by a grade-aware pathfinder. */
+export interface RoadDef { id: string; kind: RoadKind; width: number; ctrl: P2[]; grade: number; bank?: number; earth?: boolean; fixed?: boolean; bumps?: [number, number, number, number, number][] }
+export interface Road extends RoadDef { pts: P2[]; h: Float32Array; len: number; bridged: Uint8Array; raw?: Float32Array }
 
 /** Bridge spans: deck from rim to rim (the canyon below is not carved). */
 export interface Bridge { id: string; style: 'truss' | 'trestle' | 'arch' | 'beam' | 'timber'; a: P2; b: P2; width: number; ha: number; hb: number; floor?: number; pts?: P2[] }
@@ -20,6 +21,8 @@ export const BRIDGE_DEFS: { id: string; style: Bridge['style']; x: number; width
 ];
 const bN = (x: number): P2 => [x, cz(x) - RIM];
 const bS = (x: number): P2 => [x, cz(x) + RIM];
+/** approach points lined up with a canyon bridge, so roads arrive straight onto the deck */
+const aN = (x: number): P2 => [x, cz(x) - RIM - 75], aS = (x: number): P2 => [x, cz(x) + RIM + 75];
 
 /** Switchback legs along x joined by wide semicircular hairpins. Legs step by dz in z. */
 function hairpins(x0: number, xa: number, xb: number, z0: number, dz: number, legs: number): P2[] {
@@ -35,9 +38,6 @@ function hairpins(x0: number, xa: number, xb: number, z0: number, dz: number, le
     x = xe; dir = -dir;
   }
   return pts;
-}
-function switchbacks(): P2[] {
-  return [[-20, -250], [-60, -430], ...hairpins(-60, -330, 70, -500, -100, 9), [APEX.x + 30, APEX.z + 175]];
 }
 function spiral(p: { x: number; z: number; r: number; tiers: number; tierW: number }, a0: number, turns: number): P2[] {
   const out: P2[] = [];
@@ -58,17 +58,19 @@ export const CABINS = [
   { id: 'snow', name: 'Snowy Mountain Outpost', biome: 2, x: -1470, z: -1885, yaw: 2.6, prize: 'The Master Assembly Blueprint', from: [-1600, -1300] as P2, via: [[-1630, -1500], [-1600, -1700]] as P2[] },
 ];
 
+/** Summit Station junction: on the south shoulder of Mount Apex, where the three mountain roads meet. */
+export const SUMMIT: P2 = [-200, -1150];
 const MX = hairpins(-1650, -2000, -1650, 500, 135, 4);
 export const ROAD_DEFS: RoadDef[] = [
   // hub spokes
-  { id: 'hub-south', kind: 'asphalt', width: 11, grade: 0.09, ctrl: [[0, 40], [30, 300], [-30, 560], [60, 820], [150, 1000], bN(BRIDGES_X[1])] },
+  { id: 'hub-south', kind: 'asphalt', width: 11, grade: 0.09, ctrl: [[0, 40], [30, 300], [-30, 560], [60, 820], aN(BRIDGES_X[1]), bN(BRIDGES_X[1])] },
   { id: 'hub-east', kind: 'dirt', width: 9, grade: 0.12, ctrl: [[40, 0], [300, -40], [520, 60], [720, -30], [900, 40], [1080, -70], [1230, -150], [1420, -210], [1650, -120], [1840, -60], [2000, -60]] },
   { id: 'hub-west', kind: 'haul', width: 15, grade: 0.08, ctrl: [[-40, 0], [-300, 20], [-560, -20], [-820, -60], [-900, -60], spiral(PITS[0], 0.25, 1.15)[0]] },
-  { id: 'hub-north', kind: 'snow', width: 8, grade: 0.12, ctrl: [[0, -40], ...switchbacks()] },
+  { id: 'hub-north', kind: 'snow', width: 8, grade: 0.14, ctrl: [[0, -40], [-20, -250], [-60, -700], [-120, -860], [-180, -1000], SUMMIT] },
   // desert outer: the Baja run along the far south, everything in the desert drains into it
-  { id: 'baja-run', kind: 'gravel', width: 11, grade: 0.11, ctrl: [[-1960, 1640], [-1760, 1840], [-1420, 1880], [-1080, 2000], [-720, 1910], [-360, 2010], [0, 1960], [360, 2030], [800, 1940], [1120, 2010], [1440, 1910], [1760, 1720], [1940, 1480]],
+  { id: 'baja-run', kind: 'gravel', width: 11, grade: 0.2, ctrl: [[-1960, 1640], [-1760, 1840], [-1420, 1880], [-1080, 2000], [-720, 1910], [-360, 2010], [0, 1960], [360, 2030], [800, 1940], [1120, 2010], [1440, 1910], [1760, 1720], [1940, 1480]],
     bumps: [[0.13, 2.2, 14, 12, 22], [0.3, 2.6, 16, 14, 24], [0.47, 2.2, 14, 10, 22], [0.62, 2.8, 16, 14, 26], [0.8, 2.4, 14, 12, 24]] },
-  { id: 'south-desert', kind: 'asphalt', width: 11, grade: 0.09, ctrl: [bS(BRIDGES_X[1]), [190, 1420], [140, 1640], [60, 1820], [10, 1955]] },
+  { id: 'south-desert', kind: 'asphalt', width: 11, grade: 0.13, ctrl: [bS(BRIDGES_X[1]), aS(BRIDGES_X[1]), [190, 1420], [140, 1640], [60, 1820], [10, 1955]] },
   // forest
   { id: 'forest-loop', kind: 'dirt', width: 8, grade: 0.13, ctrl: [[720, -30], [800, 250], [1000, 420], [1260, 380], [1520, 300], [1700, 500], [1650, 800], [1400, 900], [1100, 800], [800, 620], [500, 400], [260, 160], [60, 30]] },
   { id: 'forest-north', kind: 'dirt', width: 8, grade: 0.14, ctrl: [[900, 40], [860, -300], [960, -600], [870, -915]] },
@@ -77,29 +79,29 @@ export const ROAD_DEFS: RoadDef[] = [
     bumps: [[0.42, 2.0, 14, 10, 22], [0.58, 2.4, 14, 12, 22], [0.74, 2.2, 14, 10, 22], [0.88, 2.6, 16, 12, 24]] },
   { id: 'timber-trail', kind: 'trail', width: 6, grade: 0.16, ctrl: [[1080, -70], [1330, 80], [1420, 330], [1600, 560], [1800, 650], [1900, 760], [1960, 850]] },
   // desert
-  { id: 'desert-west', kind: 'dirt', width: 8, grade: 0.12, ctrl: [[-30, 560], [-350, 780], [-640, 900], bN(BRIDGES_X[0])] },
-  { id: 'desert-west-s', kind: 'dirt', width: 8, grade: 0.12, ctrl: [bS(BRIDGES_X[0]), [-820, 1450], [-1000, 1620], [-1200, 1760], [-1420, 1880]] },
-  { id: 'desert-east', kind: 'dirt', width: 9, grade: 0.12, ctrl: [[60, 820], [480, 870], [760, 880], [920, 860], [995, 895], bN(BRIDGES_X[2])] },
-  { id: 'desert-east-s', kind: 'dirt', width: 9, grade: 0.12, ctrl: [bS(BRIDGES_X[2]), [1080, 1380], [1250, 1600], [1300, 1800], [1440, 1910]] },
-  { id: 'canyon-floor', kind: 'trail', width: 7, grade: 0.2, bank: 4, earth: false, ctrl: [...Array.from({ length: 33 }, (_, i) => -1150 + i * 40).map((x) => [x, cz(x) + 7 * Math.sin(x / 75)] as P2), [200, cz(200) + 6]] },
-  { id: 'cliff-trail', kind: 'trail', width: 7, grade: 0.15, bank: 5, earth: false, ctrl: [[200, cz(200) + 6], [250, cz(250) + 24], [330, cz(330) + 42], [430, cz(430) + 60], [520, cz(520) + 86], [600, cz(600) + 130]] },
+  { id: 'desert-west', kind: 'dirt', width: 8, grade: 0.16, ctrl: [[-30, 560], [-350, 780], aN(BRIDGES_X[0]), bN(BRIDGES_X[0])] },
+  { id: 'desert-west-s', kind: 'dirt', width: 8, grade: 0.16, ctrl: [bS(BRIDGES_X[0]), aS(BRIDGES_X[0]), [-820, 1450], [-1000, 1620], [-1200, 1760], [-1420, 1880]] },
+  { id: 'desert-east', kind: 'dirt', width: 9, grade: 0.16, ctrl: [[60, 820], [480, 870], [760, 880], aN(BRIDGES_X[2]), bN(BRIDGES_X[2])] },
+  { id: 'desert-east-s', kind: 'dirt', width: 9, grade: 0.16, ctrl: [bS(BRIDGES_X[2]), aS(BRIDGES_X[2]), [1080, 1380], [1250, 1600], [1300, 1800], [1440, 1910]] },
+  { id: 'canyon-floor', kind: 'trail', width: 7, grade: 0.2, bank: 4, earth: false, fixed: true, ctrl: [...Array.from({ length: 33 }, (_, i) => -1150 + i * 40).map((x) => [x, cz(x) + 7 * Math.sin(x / 75)] as P2), [200, cz(200) + 6]] },
+  { id: 'cliff-trail', kind: 'trail', width: 7, grade: 0.15, bank: 5, earth: false, fixed: true, ctrl: [[200, cz(200) + 6], [250, cz(250) + 24], [330, cz(330) + 42], [430, cz(430) + 60], [520, cz(520) + 86], [600, cz(600) + 130]] },
   { id: 'dune-track', kind: 'trail', width: 8, grade: 0.16, ctrl: [[600, cz(600) + 130], [590, 1450], [585, 1550], [640, 1640], [760, 1760], [800, 1940]] },
   // quarry + west
-  { id: 'pitA-spiral', kind: 'haul', width: 14, grade: 0.1, ctrl: spiral(PITS[0], 0.25, 1.15) },
+  { id: 'pitA-spiral', kind: 'haul', width: 14, grade: 0.1, fixed: true, ctrl: spiral(PITS[0], 0.25, 1.15) },
   { id: 'pitB-road', kind: 'haul', width: 13, grade: 0.09, ctrl: [[-760, -52], [-725, 90], [-760, 280], [-820, 430], [PITS[1].x + PITS[1].r - 5, PITS[1].z - 40]] },
-  { id: 'pitB-spiral', kind: 'haul', width: 12, grade: 0.1, ctrl: spiral(PITS[1], -0.19, 0.95) },
+  { id: 'pitB-spiral', kind: 'haul', width: 12, grade: 0.1, fixed: true, ctrl: spiral(PITS[1], -0.19, 0.95) },
   { id: 'haul-south', kind: 'haul', width: 14, grade: 0.09, ctrl: [[-852, 540], [-875, 700], [-1000, 795], [-1180, 795], [-1330, 880]] },
-  { id: 'canyon-entry', kind: 'trail', width: 8, grade: 0.15, bank: 6, ctrl: [[-1330, 880], [-1300, 1040], [-1150, cz(-1150)]] },
+  { id: 'canyon-entry', kind: 'trail', width: 8, grade: 0.15, bank: 6, fixed: true, ctrl: [[-1330, 880], [-1300, 1040], [-1150, cz(-1150)]] },
   { id: 'quarry-north', kind: 'gravel', width: 10, grade: 0.17, ctrl: [[-820, -60], [-860, -400], [-780, -700], [-720, -900], [-694, -950]] },
   { id: 'west-haul', kind: 'haul', width: 13, grade: 0.1, ctrl: [[-860, -410], [-1080, -490], [-1350, -520], [-1640, -400], [-1800, -170], [-1830, 120], [-1700, 380], [-1650, 500]] },
-  { id: 'mx-track', kind: 'dirt', width: 10, grade: 0.2, ctrl: MX,
+  { id: 'mx-track', kind: 'dirt', width: 10, grade: 0.2, fixed: true, ctrl: MX,
     bumps: [[0.06, 2.4, 12, 8, 16], [0.16, 2.8, 12, 10, 16], [0.33, 2.4, 12, 8, 16], [0.43, 3.0, 13, 10, 18], [0.6, 2.4, 12, 8, 16], [0.7, 2.8, 12, 10, 16], [0.87, 2.6, 12, 8, 16], [0.95, 3.0, 13, 10, 18]] },
   { id: 'mx-link', kind: 'dirt', width: 9, grade: 0.12, ctrl: [MX[MX.length - 1], [-1580, 960], [-1460, 900], [-1330, 880]] },
   // mountain
-  { id: 'peak-descent', kind: 'snow', width: 7, grade: 0.18, ctrl: [[APEX.x + 30, APEX.z + 175], [-250, -1440], [-430, -1405], ...hairpins(-440, -690, -440, -1330, 95, 5)] },
-  { id: 'glacier-ridge', kind: 'snow', width: 8, grade: 0.2, ctrl: [[APEX.x + 30, APEX.z + 175], [150, -1420], [450, -1440], [750, -1390], [1000, -1330], [1160, -1230], [1150, -1080], [1020, -1000], [870, -915]] },
+  { id: 'peak-descent', kind: 'snow', width: 8, grade: 0.16, ctrl: [SUMMIT, [-330, -1160], [-520, -1140], [-694, -950]] },
+  { id: 'glacier-ridge', kind: 'snow', width: 8, grade: 0.16, ctrl: [SUMMIT, [250, -1220], [650, -1330], [1000, -1300], [870, -915]] },
   { id: 'alpine-pass', kind: 'snow', width: 9, grade: 0.13, ctrl: [[-694, -950], [-880, -1060], [-1100, -1120], [-1350, -1210], [-1600, -1300]] },
-  ...CABINS.map((c) => ({ id: 'ruts-' + c.id, kind: 'trail' as RoadKind, width: 3.4, grade: 0.22, bank: 4, ctrl: [c.from, ...c.via, [c.x + Math.sin(c.yaw) * 13, c.z + Math.cos(c.yaw) * 13] as P2] })),
+  ...CABINS.map((c) => ({ id: 'ruts-' + c.id, kind: 'trail' as RoadKind, width: 3.4, grade: 0.3, bank: 4, ctrl: [c.from, ...c.via, [c.x + Math.sin(c.yaw) * 13, c.z + Math.cos(c.yaw) * 13] as P2] })),
 ];
 
 export const RAMPS: { x: number; z: number; dir: number; h: number; len: number; w: number }[] = [
@@ -108,6 +110,101 @@ export const RAMPS: { x: number; z: number; dir: number; h: number; len: number;
 ];
 
 export interface Pad { x: number; z: number; r: number; h: number }
+
+/**
+ * Grade-aware road routing (A* on an 8 m lattice with 16 move directions). Steps steeper than the road's ruling grade
+ * are heavily penalised, so roads follow the contours, wind round mesas and zig-zag up mountains on their own,
+ * instead of being bulldozed straight through them.
+ */
+const RG = 8, RN = Math.floor((HALF * 2) / RG) + 1;
+class Router {
+  h = new Float32Array(RN * RN); mult = new Float32Array(RN * RN); relief = new Float32Array(RN * RN);
+  private g = new Float32Array(RN * RN * 16).fill(Infinity); private from = new Int32Array(RN * RN * 16).fill(-1); private closed = new Uint8Array(RN * RN * 16);
+  private touched: number[] = [];
+  private turn = new Float32Array(16 * 16);
+  constructor(data: WorldData) {
+    for (let j = 0; j < RN; j++) for (let i = 0; i < RN; i++) {
+      const x = -HALF + i * RG, z = -HALF + j * RG, k = j * RN + i;
+      this.h[k] = sampleH(data.height, x, z);
+      let m = 1;
+      if (x > CANYON_X0 && x < CANYON_X1 && Math.abs(z - cz(x)) < 90) m = 60;               // only bridges cross the canyon
+      for (const p of PITS) if (Math.hypot(x - p.x, z - p.z) < p.r - 10) m = Math.max(m, 25);
+      for (const l of LAKES) if (Math.hypot(x - l.x, z - l.z) < l.r + 10) m = Math.max(m, 25);
+      if (Math.max(Math.abs(x), Math.abs(z)) > HALF - 300) m = Math.max(m, 30);
+      for (const g of GARAGES) { if (!g.main) continue; const px = g.x + Math.sin(g.yaw) * (g.main ? 10 : 7), pz = g.z + Math.cos(g.yaw) * (g.main ? 10 : 7); if (Math.hypot(x - px, z - pz) < (g.main ? 42 : 26) + 10) m = Math.max(m, 40); }
+      this.mult[k] = m;
+    }
+    // river channels: crossable, but cross once and square-on
+    for (const r of data.rivers) { const R = Math.ceil((r.width / 2 + 16) / RG); for (let k = 0; k < r.pts.length; k += 2) { const [x, z] = r.pts[k], ci = Math.round((x + HALF) / RG), cj = Math.round((z + HALF) / RG); for (let dj = -R; dj <= R; dj++) for (let di = -R; di <= R; di++) { const ii = ci + di, jj = cj + dj; if (ii >= 0 && jj >= 0 && ii < RN && jj < RN && Math.hypot(di, dj) * RG < r.width / 2 + 16) this.mult[jj * RN + ii] = Math.max(this.mult[jj * RN + ii], 3); } } }
+    // plan on terrain blurred to ~40 m: roads ride over dune ripples and rocks, but respect hills and mountains
+    for (let pass = 0; pass < 3; pass++) {
+      const src = this.h.slice();
+      for (let j = 2; j < RN - 2; j++) for (let i = 2; i < RN - 2; i++) { let sum = 0; for (let d = -2; d <= 2; d++) sum += src[j * RN + i + d] + src[(j + d) * RN + i]; this.h[j * RN + i] = sum / 10; }
+    }
+    // relief: how far the real ground stands proud of (or sinks below) the planning surface = earthworks needed here
+    for (let j = 0; j < RN; j++) for (let i = 0; i < RN; i++) { const k = j * RN + i; this.relief[k] = Math.max(0, Math.abs(sampleH(data.height, -HALF + i * RG, -HALF + j * RG) - this.h[k]) - 2.5); }
+  }
+  /** A* over (node, heading) states: a turning cost makes it build long switchback legs with real hairpins. */
+  route(a: P2, b: P2, gmax: number): P2[] {
+    const node = (p: P2) => clamp(Math.round((p[1] + HALF) / RG), 0, RN - 1) * RN + clamp(Math.round((p[0] + HALF) / RG), 0, RN - 1);
+    const s0 = node(a), t = node(b), ti = t % RN, tj = (t / RN) | 0;
+    const ND = 16;
+    for (const k of this.touched) { this.g[k] = Infinity; this.from[k] = -1; this.closed[k] = 0; }
+    this.touched = [];
+    const D: [number, number, number, number][] = [];
+    for (const [di, dj] of [[1, 0], [2, 1], [1, 1], [1, 2], [0, 1], [-1, 2], [-1, 1], [-2, 1], [-1, 0], [-2, -1], [-1, -1], [-1, -2], [0, -1], [1, -2], [1, -1], [2, -1]]) D.push([di, dj, Math.hypot(di, dj) * RG, Math.atan2(dj, di)]);
+    const hf: number[] = [], hn: number[] = [];
+    const push = (f: number, n: number) => { let i = hf.length; hf.push(f); hn.push(n); while (i > 0) { const p = (i - 1) >> 1; if (hf[p] <= f) break; hf[i] = hf[p]; hn[i] = hn[p]; i = p; } hf[i] = f; hn[i] = n; };
+    const pop = () => { const n = hn[0], lf = hf.pop()!, ln = hn.pop()!; if (hf.length) { let i = 0; for (;;) { let c = 2 * i + 1; if (c >= hf.length) break; if (c + 1 < hf.length && hf[c + 1] < hf[c]) c++; if (hf[c] >= lf) break; hf[i] = hf[c]; hn[i] = hn[c]; i = c; } hf[i] = lf; hn[i] = ln; } return n; };
+    // turn penalty table (metres-equivalent) between headings
+    const turn = this.turn;
+    for (let x = 0; x < ND; x++) for (let y = 0; y < ND; y++) { let d = Math.abs(D[x][3] - D[y][3]); if (d > Math.PI) d = 2 * Math.PI - d; turn[x * ND + y] = d < 0.5 ? 2 + d * 14 : Infinity; }   // ≤ ~25° per step: hairpins keep a ~20 m radius
+    const DI = new Int32Array(ND), DJ = new Int32Array(ND), DL = new Float32Array(ND);
+    for (let d = 0; d < ND; d++) { DI[d] = D[d][0]; DJ[d] = D[d][1]; DL[d] = D[d][2]; }
+    const H = this.h, M = this.mult, REL = this.relief, G = this.g, F = this.from, C = this.closed, ht = H[t], inv = 1 / gmax;
+    // stay within a corridor around the leg: no kilometre-long detours through neighbouring valleys
+    const ax = (a[0] + HALF) / RG, az = (a[1] + HALF) / RG, bx = (b[0] + HALF) / RG, bz = (b[1] + HALF) / RG;
+    const lx = bx - ax, lz = bz - az, l2 = lx * lx + lz * lz || 1, corr = Math.max(260, 0.45 * Math.sqrt(l2) * RG) / RG;
+    const inCorr = (i: number, j: number) => { let u = ((i - ax) * lx + (j - az) * lz) / l2; u = u < 0 ? 0 : u > 1 ? 1 : u; const dx = ax + lx * u - i, dz = az + lz * u - j; return dx * dx + dz * dz < corr * corr; };
+    for (let d = 0; d < ND; d++) { const st = s0 * ND + d; G[st] = 0; this.touched.push(st); push(0, st); }
+    let end = -1, iter = 0;
+    while (hf.length && iter++ < 6_000_000) {
+      const cs = pop();
+      const c = (cs / ND) | 0, cd = cs - c * ND;
+      if (c === t) { end = cs; break; }
+      if (C[cs]) continue;
+      C[cs] = 1;
+      const ci = c % RN, cj = (c / RN) | 0, hc = H[c], gc = G[cs], tb = cd * ND;
+      for (let nd = 0; nd < ND; nd++) {
+        const tc = c === s0 ? 0 : turn[tb + nd];
+        if (tc === Infinity) continue;
+        const ni = ci + DI[nd], nj = cj + DJ[nd];
+        if (ni < 0 || nj < 0 || ni >= RN || nj >= RN || !inCorr(ni, nj)) continue;
+        const n = nj * RN + ni, ns = n * ND + nd;
+        if (C[ns]) continue;
+        const L = DL[nd], dh = H[n] - hc, gr = (dh < 0 ? -dh : dh) / L;
+        const over = gr > gmax ? (gr - gmax) * inv : 0;
+        const ng = gc + L * (1 + 0.5 * gr * inv + (over > 0 ? 3 + 30 * over * over : 0) + 0.12 * REL[n]) * M[n] + tc;
+        if (ng < G[ns]) {
+          if (G[ns] === Infinity) this.touched.push(ns);
+          G[ns] = ng; F[ns] = cs;
+          const dx = ni - ti, dy = nj - tj, dv = ht - H[n];
+          push(ng + 1.3 * Math.max(Math.sqrt(dx * dx + dy * dy) * RG, (dv < 0 ? -dv : dv) * inv), ns);
+        }
+      }
+    }
+    if ((globalThis as { process?: { env: Record<string, string> } }).process?.env?.ROUTE_DEBUG) console.log('route', a.map(Math.round), b.map(Math.round), end < 0 ? 'FAILED' : 'ok', iter);
+    if (end < 0) return gmax < 0.5 ? this.route(a, b, gmax * 1.6) : [a, b];
+    const out: P2[] = [];
+    for (let st = end; st !== -1 && out.length < 100000; st = this.from[st]) { const n = (st / ND) | 0; out.push([-HALF + (n % RN) * RG, -HALF + ((n / RN) | 0) * RG]); }
+    out.reverse();
+    out[0] = a; out[out.length - 1] = b;
+    // round the lattice corners off (light: legs and hairpins keep their shape)
+    let p = out;
+    for (let it = 0; it < 3; it++) { const q = p.map((v) => [v[0], v[1]] as P2); for (let i = 1; i < p.length - 1; i++) { q[i][0] = (p[i - 1][0] + p[i][0] * 2 + p[i + 1][0]) / 4; q[i][1] = (p[i - 1][1] + p[i][1] * 2 + p[i + 1][1]) / 4; } p = q; }
+    return p;
+  }
+}
 
 /** Cells where earthworks may not fill: the canyon interior (bridges span it) and the wet river channels. */
 function noFillMask(data: WorldData): Uint8Array {
@@ -134,6 +231,7 @@ function noFillMask(data: WorldData): Uint8Array {
  * rise at 2:1, computed as a slope-limited distance transform from the road surface, so no road is ever a knife-edge
  * wall with sheer drops on either side, wherever it runs.
  */
+const EW_NOISE = new Simplex(4242);
 function earthworks(H: Float32Array, core: Float32Array, noFill: Uint8Array) {
   const n = V * V, lo = new Float32Array(n), hi = new Float32Array(n);
   for (let k = 0; k < n; k++) { const c = core[k]; if (c === c) { lo[k] = c; hi[k] = c; } else { lo[k] = -1e9; hi[k] = 1e9; } }
@@ -175,6 +273,10 @@ function earthworks(H: Float32Array, core: Float32Array, noFill: Uint8Array) {
     let h = H[k];
     const l = noFill[k] ? -1e9 : lo[k], u = hi[k];
     if (l > u) h = (l + u) / 2; else if (h < l) h = l; else if (h > u) h = u; else continue;
+    // no engineered-perfect batters: let 15-55 % of the original relief show through, varying along the slope
+    const x = (k % V) * CELL, z = ((k / V) | 0) * CELL;
+    const keep = 0.15 + 0.4 * (0.5 + 0.5 * EW_NOISE.fbm(x / 70, z / 70, 3));
+    h += clamp((H[k] - h) * keep, -2.5, 2.5) + 0.8 * EW_NOISE.fbm(x / 9, z / 9, 2);
     H[k] = h; touched[k] = 1;
   }
   // soften the toe/crest creases of the new slopes
@@ -219,8 +321,48 @@ export function buildRoads(data: WorldData, pads: Pad[] = []): { roads: Road[]; 
     for (let di = -R; di <= R; di++) for (let dj = -R; dj <= R; dj++) for (const [px, pz, ph] of hash.get((ci + di) * 4096 + cj + dj) ?? []) { const d = Math.hypot(px - x, pz - z); if (d < best) { best = d; bh = ph; } }
     return bh;
   };
+  const router = new Router(data);
   const addRoad = (def: RoadDef) => {
-    const pts = spline(def.ctrl, 3);
+    let path: P2[] = def.ctrl;
+    if (!def.fixed) {
+      // junctions: an end that lands near an already-built road snaps exactly onto it
+      const ctrl = def.ctrl.slice();
+      // a designed junction (this waypoint is also a waypoint of an earlier road) snaps onto that road wherever it now runs
+      const partners = (p: P2) => roads.filter((o) => o.ctrl.some((q) => Math.hypot(q[0] - p[0], q[1] - p[1]) < 1));
+      for (const e of [0, ctrl.length - 1]) {
+        const pr = partners(ctrl[e]);
+        let best = pr.length ? 400 : 45, bp: P2 | null = null;
+        for (const r of pr.length ? pr : roads) for (let i = 0; i < r.pts.length; i++) { if (r.bridged[i]) continue; const d = Math.hypot(r.pts[i][0] - ctrl[e][0], r.pts[i][1] - ctrl[e][1]); if (d < best) { best = d; bp = r.pts[i]; } }
+        if (bp && !bridges.some((b) => Math.hypot(b.a[0] - ctrl[e][0], b.a[1] - ctrl[e][1]) < 4 || Math.hypot(b.b[0] - ctrl[e][0], b.b[1] - ctrl[e][1]) < 4)) ctrl[e] = [bp[0], bp[1]];
+      }
+      path = [ctrl[0]];
+      for (let k = 0; k < ctrl.length - 1; k++) {
+        const a = ctrl[k], b = ctrl[k + 1];
+        const leg = Math.hypot(b[0] - a[0], b[1] - a[1]) < 80 ? [a, b] : router.route(a, b, def.grade * 0.85);
+        for (let i = 1; i < leg.length; i++) path.push(leg[i]);
+      }
+    }
+    if (!def.fixed) {
+      // trim out-and-back detours (a waypoint perched on a hill): if the path comes back within 14 m of itself, cut the loop
+      const out: P2[] = [];
+      for (let i = 0; i < path.length; i++) {
+        out.push(path[i]);
+        for (let k = 0; k < out.length - 6; k++) {
+          const q = out[k], arc = (out.length - 1 - k) * 8;
+          if (arc > 36 && Math.hypot(q[0] - path[i][0], q[1] - path[i][1]) < 14) { out.length = k + 1; out.push(path[i]); break; }
+        }
+      }
+      path = out;
+    }
+    let pts = def.fixed ? spline(path, 3) : resample(path, 3);
+    if (!def.fixed) {
+      // where a road's end runs alongside the road it joins, merge there instead of driving in parallel
+      const near = (p: P2) => nearRoad(p[0], p[1], 7) !== null;
+      const endJoin = (p: P2) => roads.some((r) => Math.hypot(r.pts[0][0] - p[0], r.pts[0][1] - p[1]) < 6 || Math.hypot(r.pts[r.pts.length - 1][0] - p[0], r.pts[r.pts.length - 1][1] - p[1]) < 6);
+      let e = pts.length - 1; if (!endJoin(pts[e])) while (e > 10 && near(pts[e]) && near(pts[e - 1])) e--;
+      let b0 = 0; if (!endJoin(pts[0])) while (b0 < e - 10 && near(pts[b0]) && near(pts[b0 + 1])) b0++;
+      pts = pts.slice(b0, Math.min(pts.length, e + 2));
+    }
     const n = pts.length;
     const raw = new Float32Array(n);
     for (let i = 0; i < n; i++) raw[i] = sampleH(data.height, pts[i][0], pts[i][1]);
@@ -266,6 +408,9 @@ export function buildRoads(data: WorldData, pads: Pad[] = []): { roads: Road[]; 
       for (let i = 0; i < n; i++) h2[i] = pin[i] ?? (h[clamp(i - 1, 0, n - 1)] + 2 * h[i] + h[clamp(i + 1, 0, n - 1)]) / 4;
       h = h2;
     }
+    // unpaved roads are never billiard-table smooth: gentle undulation + washboard
+    const rough = ({ asphalt: 0, haul: 0.12, gravel: 0.16, dirt: 0.22, snow: 0.22, trail: 0.32 } as Record<RoadKind, number>)[def.kind];
+    if (rough > 0 && !def.fixed) for (let i = 0; i < n; i++) if (pin[i] === null) h[i] += rough * (EW_NOISE.n(i * 3 / 23 + def.id.length * 7, 1.7) + 0.4 * EW_NOISE.n(i * 3 / 7, 9.1));
     // jumps: kicker, table, landing on top of the graded profile
     let len = 0; const cum = new Float32Array(n);
     for (let i = 1; i < n; i++) { len += Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]); cum[i] = len; }
@@ -285,7 +430,7 @@ export function buildRoads(data: WorldData, pads: Pad[] = []): { roads: Road[]; 
     const earth = def.earth !== false;
     carveAlong(data, pts, (i, u) => h[i] + (h[Math.min(i + 1, n - 1)] - h[i]) * u, half + 1.2, def.bank ?? 9,
       (d, _t, c) => (d < half + 1.2 ? c + 0.12 * (1 - (d / (half + 1.2)) ** 2) : null), false, false, false, bridged, earth ? { h: core, r: half + 2.5 } : undefined);
-    roads.push({ ...def, pts, h, len, bridged });
+    roads.push({ ...def, pts, h, len, bridged, raw });
     for (let i = 0; i < n; i++) if (!bridged[i]) { const k = key(pts[i][0], pts[i][1]); let a = hash.get(k); if (!a) hash.set(k, a = []); a.push([pts[i][0], pts[i][1], h[i], roads.length - 1]); }
     // river bridges
     for (let i = 0; i < n; i++) if (bridged[i] && (i === 0 || !bridged[i - 1])) {
@@ -310,15 +455,43 @@ export function buildRoads(data: WorldData, pads: Pad[] = []): { roads: Road[]; 
         const x = -HALF + (i + 0.5) * CELL, z = -HALF + (j + 0.5) * CELL;
         let u = ((x - ax) * dx + (z - az) * dz) / L2; u = clamp(u, 0, 1);
         const d = Math.hypot(ax + dx * u - x, az + dz * u - z);
-        const v = Math.round(255 * (1 - smoothstep(half - 1.2, half + 1.6, d)));
+        const e = half * (1 + 0.1 * EW_NOISE.n(x / 11, z / 11)) + 0.5 * EW_NOISE.n(x / 3, z / 3);
+        const v = Math.round(255 * (1 - smoothstep(e - 1.4, e + 1.8, d)));
         if (v > roadMask[j * N + i]) { roadMask[j * N + i] = v; if (v > 100) roadKind[(j >> 1) * CTRL + (i >> 1)] = kind; }
       }
     }
   };
   for (const def of ROAD_DEFS) addRoad(def);
-  // garages: a level pad at the height of the road they serve, plus a graded driveway from the apron to that road
+  // garages: outposts are sited automatically beside the road nearest their nominal spot, on whichever side (and a little
+  // up or down the road) the ground sits closest to road level and clear of other roads; they face the road across a
+  // level apron and get a short driveway. The hub garage keeps its hand-placed plaza.
+  const samples: [number, number][] = []; roads.forEach((r, ri) => r.pts.forEach((_, i) => samples.push([ri, i])));
+  const clearOf = (x: number, z: number, R: number, skip: Road | null) => { for (const r of roads) { if (r === skip) continue; for (const p of r.pts) if (Math.abs(p[0] - x) < R && Math.abs(p[1] - z) < R && Math.hypot(p[0] - x, p[1] - z) < R) return false; } return true; };
   for (const g of GARAGES) {
-    const D = g.main ? 20 : 12, fx = Math.sin(g.yaw), fz = Math.cos(g.yaw);
+    const D = g.main ? 20 : 12;
+    if (!g.main) {
+      let bestS = 1e9, place: { x: number; z: number; yaw: number } | null = null;
+      let road: Road | null = null, i0 = 0, bd = 1e9;
+      for (const r of roads) { if (r.id.startsWith('ruts-') || r.id.startsWith('drive-') || r.fixed && r.id !== 'mx-track') continue; r.pts.forEach((p, i) => { if (r.bridged[i]) return; const d = Math.hypot(p[0] - g.x, p[1] - g.z); if (d < bd) { bd = d; road = r; i0 = i; } }); }
+      const rd = road as Road | null;
+      if (rd) {
+        const off = rd.width / 2 + 4 + 26 + 7;   // the level pad (r 26, centred 7 m in front of the doors) stays clear of the road
+        for (let di = -60; di <= 60; di += 6) {
+          const i = clamp(i0 + di, 2, rd.pts.length - 3), p = rd.pts[i], q = rd.pts[i + 2], o = rd.pts[i - 2];
+          if (rd.bridged[i]) continue;
+          let tx = q[0] - o[0], tz = q[1] - o[1]; const l = Math.hypot(tx, tz) || 1; tx /= l; tz /= l;
+          for (const side of [-1, 1]) {
+            const nx = -tz * side, nz = tx * side, cx = p[0] + nx * off, cz = p[1] + nz * off;
+            if (!clearOf(cx - nx * 7, cz - nz * 7, 33, null)) continue;   // the pad (centred 7 m roadward) clear of every road, this one included
+            let dev = 0; for (let a = 0; a < 12; a++) for (const f of [0.4, 1]) dev += Math.abs(sampleH(data.height, cx + Math.cos(a * 0.52) * 24 * f, cz + Math.sin(a * 0.52) * 24 * f) - rd.h[i]);
+            const score = dev / 24 + Math.abs(di) * 0.05;
+            if (score < bestS) { bestS = score; place = { x: cx, z: cz, yaw: Math.atan2(-nx, -nz) }; }
+          }
+        }
+      }
+      if (place) Object.assign(g, place);
+    }
+    const fx = Math.sin(g.yaw), fz = Math.cos(g.yaw);
     const A: P2 = [g.x + fx * (D / 2 + 14), g.z + fz * (D / 2 + 14)];
     let best = 1e9, P: P2 = A, ph = 0;
     for (const r of roads) { if (r.id.startsWith('ruts-') || r.id.startsWith('drive-')) continue; for (let i = 0; i < r.pts.length; i++) { if (r.bridged[i]) continue; const d = Math.hypot(r.pts[i][0] - A[0], r.pts[i][1] - A[1]); if (d < best) { best = d; P = r.pts[i]; ph = r.h[i]; } } }
@@ -329,10 +502,9 @@ export function buildRoads(data: WorldData, pads: Pad[] = []): { roads: Road[]; 
       if (Math.hypot(-HALF + i * CELL - pad.x, -HALF + j * CELL - pad.z) <= pad.r) core[j * V + i] = pad.h;
     }
     if (best < 12) continue;
-    const ext = Math.min(18, best * 0.4);
-    const B: P2 = [A[0] + fx * ext, A[1] + fz * ext];
-    addRoad({ id: 'drive-' + g.id, kind: g.main ? 'asphalt' : 'dirt', width: g.main ? 10 : 8, grade: 0.16, ctrl: [A, B, P] });
+    addRoad({ id: 'drive-' + g.id, kind: g.main ? 'asphalt' : 'dirt', width: g.main ? 10 : 8, grade: 0.16, fixed: true, ctrl: [A, P] });
   }
+  void samples;
   earthworks(data.height, core, noFill);
   // blend junctions: where independently graded roads meet, relax the heights over the road + shoulder cells
   {

@@ -60,7 +60,7 @@ export const GARAGES = [
   { id: 'hub', name: 'Central Hub Garage', x: -95, z: 58, yaw: Math.PI / 2, main: true },
   { id: 'desert', name: 'Dune Outpost Garage', x: 245, z: 1560, yaw: -Math.PI / 2, main: false },
   { id: 'forest', name: 'Logging Camp Garage', x: 1560, z: 360, yaw: Math.PI, main: false },
-  { id: 'snow', name: 'Summit Station Garage', x: 330, z: -1392, yaw: Math.PI, main: false },
+  { id: 'snow', name: 'Summit Station Garage', x: -300, z: -1205, yaw: 1.2, main: false },
   { id: 'quarry', name: 'Quarry Works Garage', x: -905, z: -300, yaw: Math.PI / 2, main: false },
   { id: 'baja', name: 'Baja Base Garage', x: -1975, z: 1560, yaw: 0.25, main: false },
   { id: 'ridgeback', name: 'Ridgeback Lodge Garage', x: 2075, z: -160, yaw: -Math.PI / 2, main: false },

@@ -48,10 +48,10 @@ export class Driver {
     let steer = Math.max(-1, Math.min(1, ang * 2.4));
     // speed planning over the next stretch
     const grip = v.st.grip / 1.4;
-    const brakeA = 6.5 * grip;
+    const brakeA = 4.8 * grip;   // conservative: loose surfaces brake far worse than tarmac
     let target = v.st.top * 0.98;
     for (let i = this.idx; i < n && this.cum[i] - this.cum[this.idx] < 160; i += 2) {
-      const vc = this.vmax[i] * Math.sqrt(grip) * 1.05 * this.aggression;
+      const vc = this.vmax[i] * Math.sqrt(grip) * 0.9 * this.aggression;
       const d = this.cum[i] - this.cum[this.idx];
       target = Math.min(target, Math.sqrt(vc * vc + 2 * brakeA * d));
     }

@@ -17,7 +17,7 @@ export const enum TK { Pine, Fir, Redwood, Broad, Saguaro }
 const KINDS = 5, VARS = 3;
 const BREAKABLE = [true, true, false, true, true];
 const CELL = 64, GRID = WORLD / CELL, AV = WORLD / 8;
-const CLEAR: [number, number, number][] = [
+const clearZones = (): [number, number, number][] => [
   ...GARAGES.map((g) => [g.x, g.z, g.main ? 60 : 40] as [number, number, number]),
   ...CABINS.map((c) => [c.x, c.z, 26] as [number, number, number]),
   [1500, 300, 75], [-900, 230, 70], [-910, -380, 30],
@@ -73,6 +73,7 @@ export class Foliage {
     const w = this.w, sx = new Simplex(SEED + 5), sc = new Simplex(SEED + 17);
     const bw = [0, 0, 0, 0];
     const STEP = 6;
+    const CLEAR = clearZones();
     const road = (x: number, z: number) => { const i = Math.floor((x + HALF) / 2), j = Math.floor((z + HALF) / 2); return i >= 0 && j >= 0 && i < N && j < N ? w.roadMask[j * N + i] : 0; };
     const nearRoad = (x: number, z: number, r: number) => road(x, z) > 0 || road(x + r, z) > 0 || road(x - r, z) > 0 || road(x, z + r) > 0 || road(x, z - r) > 0;
     const slopeAt = (x: number, z: number) => { const i = Math.min(N - 1, Math.max(0, Math.floor((x + HALF) / 2))), j = Math.min(N - 1, Math.max(0, Math.floor((z + HALF) / 2))); return w.normals[(j * N + i) * 4 + 2] / 255; };

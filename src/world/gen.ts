@@ -68,8 +68,7 @@ export function snowH(x: number, z: number): number {
   const dm = Math.hypot(x - APEX.x, (z - APEX.z) * 1.15);
   const cone = Math.max(0, 1 - Math.max(dm, 55) / 1150);
   const rug = s3.ridged(x / 380, z / 380, 6);
-  const corr = (1 - smoothstep(200, 420, Math.abs(x + 40))) * smoothstep(-1500, -1300, z);
-  let massif = APEX.h * Math.pow(cone, 1.45) * (0.8 + 0.42 * rug * smoothstep(0.05, 0.5, 1 - cone) * (1 - 0.75 * corr));
+  let massif = APEX.h * Math.pow(cone, 1.45) * (0.8 + 0.42 * rug * smoothstep(0.05, 0.5, 1 - cone));
   // the summit pyramid: a steep rock horn above the summit station
   const dp = Math.hypot(x - APEX.x, (z - APEX.z - 40) * 1.1);
   massif += 270 * Math.pow(Math.max(0, 1 - dp / 430), 1.7) * (0.85 + 0.3 * s2.ridged(x / 160, z / 160, 4));
@@ -82,7 +81,7 @@ export function snowH(x: number, z: number): number {
   // jagged background ranges, flattened along the switchback corridor on the south face
   const corridor = (1 - smoothstep(260, 520, Math.abs(x + 40))) * (1 - smoothstep(-1250, -1150, -z - 0) * 0) ;
   const r = Math.pow(s2.ridged(x / 760 - 4, z / 760 + 2, 6), 1.25);
-  const ranges = r * (40 + 330 * m * m) * (1 - 0.85 * corridor * smoothstep(-1500, -1350, z));
+  const ranges = r * (40 + 330 * m * m) * (1 - 0.5 * corridor * smoothstep(-1500, -1350, z));
   const k = 60; // smooth max
   const smax = (a: number, b: number) => { const hh = clamp(0.5 + 0.5 * (a - b) / k, 0, 1); return lerp(b, a, hh) + k * hh * (1 - hh) * 0.5; };
   return base + smax(smax(massif, ridge), ranges);

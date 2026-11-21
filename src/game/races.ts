@@ -1,7 +1,7 @@
 // Point-to-point race definitions built on the road network.
 // Waypoints are GPS guidance only: any line to the finish counts (cut across country if you dare). Races whose start and
 // finish are close together (lake slalom, MX track) are `strict`: their gates must be taken in order.
-import type { Road } from '../world/roads';
+import { SUMMIT, type Road } from '../world/roads';
 import type { P2 } from '../world/layout';
 import { canyonZ as cz, OFFROAD, LAKES } from '../world/layout';
 import { resample } from '../world/gen';
@@ -58,7 +58,7 @@ export function buildRaces(roads: Road[], rivers: RiverLike[] = []): RaceDef[] {
   };
   const S = (r: string, from?: P2, to?: P2): Slice => ({ r, from, to });
   const REV = (r: string): Slice => { const p = roads.find((x) => x.id === r)!.pts; return { r, from: p[p.length - 1], to: p[0] }; };
-  const HUB_N: P2 = [0, -250], SUMMIT: P2 = [-120, -1385];
+  const HUB_N: P2 = [0, -250];
   // ---------------- Desert Canyon ----------------
   add('canyon-breakout', 'Canyon Breakout', 0, 'Start on the canyon floor, splash through the river, claw up the cliff trail and blast down the dune track to the Baja road.', 2600,
     B([S('canyon-floor', [-150, cz(-150)]), S('cliff-trail'), S('dune-track')]), 600, { alts: [[[200, cz(200) + 6], [330, cz(330) + 20], [585, 1550]]] });
@@ -96,7 +96,7 @@ export function buildRaces(roads: Road[], rivers: RiverLike[] = []): RaceDef[] {
   add('avalanche-switchbacks', 'Avalanche Switchbacks', 2, 'Nine icy hairpins up the face of Mount Apex. Spiked tyres recommended.', 3000,
     B([S('hub-north', HUB_N)]), 900, { minSave: 300 });
   add('peak-descent', 'Peak Descent', 2, 'Drop off the summit down the west face, then charge over the alpine pass to the Pass Hut.', 3000,
-    B([S('peak-descent'), S('alpine-pass')]), 800, { alts: [[[-120, -1385], [-500, -1050], [-694, -950]]] });
+    B([S('peak-descent'), S('alpine-pass')]), 800, { alts: [[SUMMIT, [-500, -1050], [-694, -950]]] });
   add('glacier-ridge', 'Glacier Ridge', 2, 'Ride the high glacier ridge east from the summit, then plunge into the forest.', 2900,
     B([S('glacier-ridge')]), 700);
   const lake = LAKES.find((l) => l.id === 'frozen');

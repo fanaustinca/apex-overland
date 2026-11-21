@@ -122,6 +122,7 @@ export class Game {
     await initRapier();
     let step = 0;
     this.world = await loadWorld((s) => progress('Generating world: ' + s, 0.08 + 0.05 * ++step));
+    for (const p of this.world.garages ?? []) Object.assign(GARAGES.find((g) => g.id === p.id)!, p);   // auto-sited in the generator
     progress('Building physics', 0.4);
     this.phys = new Physics(this.world.height);
     this.terrain = new Terrain(this.world, this.gfx.renderer);

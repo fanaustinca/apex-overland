@@ -21,9 +21,22 @@ export function liveryTexture(o: LiveryOpts): THREE.Texture {
     const cols = ['#4a5232', '#2f3524', '#6b6a48', '#3d4630'];
     for (let i = 0; i < 90; i++) { g.fillStyle = cols[i % 4]; g.beginPath(); const x = rnd(i) * W, y = rnd(i + 50) * Hh, r = 30 + rnd(i + 99) * 90; g.ellipse(x, y, r * 1.6, r, rnd(i + 7) * 3, 0, Math.PI * 2); g.fill(); }
   } else if (o.style === 'snake') {
-    g.fillStyle = o.accent;
-    for (let i = 0; i < 40; i++) { const x = i * W / 40; g.beginPath(); g.moveTo(x, py(0.32)); g.lineTo(x + W / 80, py(0.42)); g.lineTo(x + W / 40, py(0.32)); g.lineTo(x + W / 80, py(0.22)); g.closePath(); g.fill(); }
-    g.fillStyle = '#d9f99d'; g.font = `900 ${Hh * 0.16}px "Segoe UI", Arial`; g.textAlign = 'center'; g.fillText('THE SNAKE', W * 0.5, py(0.6));
+    // overlapping scales, lit along their top edges, darkening towards the belly
+    const sw = 46, shh = 30;
+    for (let row = 0; row * shh < Hh + shh; row++) for (let col = -1; col * sw < W + sw; col++) {
+      const x = col * sw + (row % 2) * sw / 2, y = row * shh;
+      const v = 1 - y / Hh;
+      const gr = g.createLinearGradient(x, y - shh, x, y + shh * 0.6);
+      gr.addColorStop(0, `rgba(150,255,90,${0.14 + 0.36 * v})`); gr.addColorStop(0.55, 'rgba(10,30,18,0.0)'); gr.addColorStop(1, 'rgba(0,0,0,0.45)');
+      g.fillStyle = gr; g.beginPath(); g.moveTo(x - sw / 2, y - shh * 0.2); g.quadraticCurveTo(x, y + shh * 1.1, x + sw / 2, y - shh * 0.2); g.quadraticCurveTo(x, y - shh * 0.7, x - sw / 2, y - shh * 0.2); g.fill();
+      g.strokeStyle = 'rgba(0,0,0,0.35)'; g.lineWidth = 2; g.stroke();
+    }
+    // venom stripe: a zig-zag diamond band, and a fanged emblem
+    g.fillStyle = '#8dff3a';
+    for (let i = 0; i < 26; i++) { const x = i * W / 26; g.beginPath(); g.moveTo(x, py(0.36)); g.lineTo(x + W / 52, py(0.45)); g.lineTo(x + W / 26, py(0.36)); g.lineTo(x + W / 52, py(0.27)); g.closePath(); g.globalAlpha = 0.85; g.fill(); }
+    g.globalAlpha = 1;
+    g.font = `italic 900 ${Hh * 0.13}px "Segoe UI", Arial`; g.textAlign = 'center'; g.fillStyle = 'rgba(0,0,0,0.6)'; g.fillText('THE SNAKE', W * 0.5 + 4, py(0.62) + 4);
+    g.fillStyle = '#c8ff8a'; g.fillText('THE SNAKE', W * 0.5, py(0.62));
   } else if (o.style !== 'plain') {
     // lower accent band with a raked cut
     g.fillStyle = o.accent;

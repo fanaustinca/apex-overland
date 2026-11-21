@@ -47,6 +47,7 @@ for (const race of races) {
       const p = v.position();
       const lost = p.y < sampleH(w.height, p.x, p.z) - 4 || !Number.isFinite(p.y);
       if (drv.resetReq || lost) { drv.resetReq = false; resets++; where.push(`${p.x.toFixed(0)},${p.z.toFixed(0)}`); const r = drv.resetPose(); v.reset({ x: r.x, y: Math.max(sampleH(w.height, r.x, r.z), (phys.castDown?.(r.x, r.z, sampleH(w.height, r.x, r.z) + 30) ?? -1e9)) + st.wheelR + d.susp.rest + 0.6, z: r.z }, r.yaw); }
+      if (process.env.TRACE && k % 30 === 0) { const q = v.position(); console.log('   t', (k / 60).toFixed(1), q.x.toFixed(0), q.z.toFixed(0), 'kmh', v.kmh().toFixed(0), 'idx', drv.idx, 'steer', c.steer.toFixed(2), 'thr', c.throttle.toFixed(2), 'brk', c.brake.toFixed(2), 'up', v.main.up().y.toFixed(2)); }
       v.update(1 / 60, c, env);
       phys.world.step(phys.events);
       phys.events.drainContactForceEvents(() => {});

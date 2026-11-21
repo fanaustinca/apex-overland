@@ -20,6 +20,7 @@ export const SUN_DIR: [number, number, number] = [Math.sin(SUN_AZ) * Math.cos(SU
 
 export interface World extends WorldData {
   roads: Road[]; bridges: Bridge[];
+  garages: { id: string; x: number; z: number; yaw: number }[];   // final (auto-sited) garage placements
   roadMask: Uint8Array;   // N*N
   roadKind: Uint8Array;   // CTRL*CTRL
   normals: Uint8Array;    // N*N*4 (nx, nz, slope, unused) packed
@@ -39,6 +40,7 @@ export function generateWorld(log: (s: string) => void = () => {}, rows?: Float3
   const w = base as World;
   Object.assign(w, r);
   carveRivers(base); lap('river channels');
+  w.garages = GARAGES.map((g) => ({ id: g.id, x: g.x, z: g.z, yaw: g.yaw }));
   w.normals = computeNormals(w.height); lap('normals');
   if (shade) { const s = shadeRows(w, 0, CTRL); w.bake = s.bake; w.ctrl = s.ctrl; w.surface = s.surface; lap('light bake + splat'); }
   return w;
@@ -193,7 +195,7 @@ function splat(w: Pick<World, 'height' | 'normals' | 'wet' | 'water' | 'roadMask
     let best = 0; for (let k = 1; k < 12; k++) if (L[k] > L[best]) best = k;
     const MAP = [Surf.Sand, Surf.Dirt, Surf.Rock, Surf.Dirt, Surf.Grass, Surf.Snow, Surf.Rock, Surf.Gravel, Surf.Mud, Surf.Dirt, Surf.Rock, Surf.Asphalt];
     let sf = MAP[best];
-    if (rm > 0.5 && kind) sf = [Surf.Asphalt, Surf.Asphalt, Surf.Dirt, Surf.Gravel, Surf.Ice, Surf.Dirt, Surf.Gravel][kind];
+    if (rm > 0.5 && kind) sf = [Surf.Asphalt, Surf.Asphalt, Surf.Dirt, Surf.Gravel, Surf.Snow, Surf.Dirt, Surf.Gravel][kind];   // snow roads are packed snow; only the frozen lake is ice
     if (!Number.isNaN(w.water[o])) sf = Surf.Mud;
     for (const lk of LAKES) if (lk.ice && Math.hypot(x - lk.x, z - lk.z) < lk.r) sf = Surf.Ice;
     surface[ol] = sf;

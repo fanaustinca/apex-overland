@@ -26,9 +26,12 @@ One seamless **5.1 km × 5.1 km** world (2 m heightfield, 6.6 M samples, generat
 
 The outer ring holds the **Baja run** (desert rally road with tabletop jumps) and the **Ridgeback** (eastern gravel rally stage). **11 garages**; any of them is one click away in the fast-travel list on the map.
 
-Every road is built like a real one: graded profiles, embankments at 1:2.5 and cuttings at 2:1 (no knife-edge ridge roads), junctions and crossings meet at the same height, and river crossings are proper bridges with the water flowing underneath. `npx tsx tools/audit.ts` checks all of it.
+Roads are laid out the way real ones are: a grade-aware pathfinder (A* over position + heading, with a minimum hairpin radius) routes every road between its waypoints along the contours, round mesas and up mountains in switchbacks, so roads hug the terrain and only shave a few metres off it. Shallow, irregular earthworks blend them in; junctions meet at the same height; river crossings are proper bridges; outpost garages site themselves beside their road on level ground. `npx tsx tools/audit.ts` checks all of it.
 
 No invisible walls: waypoints only guide the GPS — any line to the finish counts, so cut through forests, dunes and cliffs (the frozen-lake slalom and the MX track make you take every gate).
+
+| ![The Snake](docs/snake-front.jpg) | ![The Snake, side](docs/snake-side.jpg) |
+|---|---|
 
 ## Vehicles (17)
 Dirt Bike (lean physics + bunny-hop) · Dune Buggy · Rally Sedan · Offroad Limo · 4x4 Rock Crawler · Expedition SUV · Pickup · 6x6 · Dakar Rally Truck · Semi · 8x8 (four-wheel steer) · Monster Truck · School Bus · Battle Tank (tracks, neutral pivot steering) · Mining Dump Truck · and the secret **THE SNAKE 12x12** — three 4x4 modules on hydraulic hinges whose trailing axles steer to follow the hitch ahead.

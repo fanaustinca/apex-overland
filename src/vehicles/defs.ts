@@ -86,7 +86,7 @@ export const VEHICLES: VehicleDef[] = [
   { id: 'snake', name: 'THE SNAKE 12x12', cls: 'Secret', body: 'snake', special: 'snake', price: 0, blurb: 'Three articulated 4x4 modules joined by hydraulic hinges. Assembled from four barn finds.',
     mass: 4200, power: 520, top: 37, len: 4.6, wid: 2.4, hgt: 2.0, ride: 0.38, wheelR: 0.6, wheelW: 0.42,
     wheels: [...axle(1.35, 1.05, 1), ...axle(-1.25, 1.05, 0)],
-    susp: { rest: 0.7, travel: 0.55, stiff: 27, damp: 2.8 }, grip: 1.49, steerMax: 0.5, color: '#1f8a5b', color2: '#111', plowable: true, heavy: true, intake: 2.2 },
+    susp: { rest: 0.7, travel: 0.55, stiff: 27, damp: 2.8 }, grip: 1.49, steerMax: 0.5, color: '#10261b', color2: '#1d3a28', plowable: true, heavy: true, intake: 2.2 },
 ];
 export const VEH = Object.fromEntries(VEHICLES.map((v) => [v.id, v])) as Record<string, VehicleDef>;
 

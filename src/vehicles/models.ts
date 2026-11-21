@@ -21,7 +21,7 @@ interface Anch { hood: [number, number, number]; cab: [number, number, number, n
 const RIM_COLORS = [0xbfc3c8, 0x1c1c1e, 0xb08d57, 0x4a4d52];
 
 export function buildVisual(d: VehicleDef, up: Upgrades, st: Stats, module = 0): VehicleVisual {
-  const mats = vehicleMats(up.paint ?? d.color, d.color2, RIM_COLORS[up.tires - 1], up.tires === 2 ? 0.4 : 0.9);
+  const mats = vehicleMats(up.paint ?? d.color, d.color2, d.body === 'snake' ? 0x111214 : RIM_COLORS[up.tires - 1], d.body === 'snake' ? 0.7 : up.tires === 2 ? 0.4 : 0.9);
   const s = sharedMats();
   const root = new THREE.Group(); root.name = d.id;
   const body = new THREE.Group(); root.add(body);
@@ -626,30 +626,83 @@ function bike(c: Ctx): Anch {
   return { hood: [0.1, y0 + 0.95, 0.4], cab: [-0.6, 0.3, y0 + 1.3, 0.5], front: fz + 0.35, rear: rz - 0.35, bumperY: y0 + 0.2, lightY: y0 + 0.8, exhaust: [[0.16, y0 + 0.7, -0.98]], nosAt: [0, y0 + 0.7, -0.75], snorkelZ: 0, roofY: y0 + 1.3, open: true };
 }
 
+/**
+ * THE SNAKE: three modules styled as one predator. Head: a long wedge nose with slanted glowing eyes, ivory fangs, slit
+ * windows and a roof light bar. Body: an armoured hull under overlapping dorsal scale plates with a spine of fins and
+ * venom-green vents. Tail: a tapering hull, rear wing and a segmented rattle. Rubber bellows close every joint.
+ */
 function snakeModule(c: Ctx, m: number): Anch {
   const { body, mats, s, W, y0, wz } = c;
   const ar = arches(c);
-  // hydraulic hinge hardware at the joints
-  const hitch = (z: number) => { box(body, s.steel, 0.5, 0.35, 0.6, 0, y0 + 0.4, z, 0.06); for (const sd of [-1, 1]) tube(body, s.chrome, [sd * 0.55, y0 + 0.75, z * 0.85], [sd * 0.35, y0 + 0.45, z * 1.08], 0.05); };
-  if (m > 0) hitch(2.4);
-  if (m < 2) hitch(-2.4);
+  const glow = SNAKE_GLOW(), bone = SNAKE_BONE();
+  // joints: hitch casting + hydraulic rams + accordion bellows reaching to the hinge point
+  const joint = (dir: number) => {
+    const z = dir * 2.3;
+    box(body, s.steel, 0.55, 0.38, 0.5, 0, y0 + 0.4, z + dir * 0.2, 0.06);
+    for (const sd of [-1, 1]) tube(body, s.chrome, [sd * 0.62, y0 + 0.78, z - dir * 0.25], [sd * 0.3, y0 + 0.5, z + dir * 0.5], 0.05);
+    for (let k = 0; k < 6; k++) { const rr = 0.62 - (k % 2) * 0.07; cyl(body, mats.trim, rr, 0.075, 0, y0 + 0.95, z + dir * (0.04 + k * 0.09), 'z', 18); }
+  };
+  if (m > 0) joint(1);
+  if (m < 2) joint(-1);
+  // dorsal scales: overlapping plates down the spine, each carrying a fin
+  const scales = (z0: number, z1: number, y: number, n: number, w: number) => {
+    for (let i = 0; i < n; i++) {
+      const t = (i + 0.5) / n, z = z0 + (z1 - z0) * t, sz = (z1 - z0) / n * 1.18;
+      box(body, mats.paint2, w, 0.1, sz, 0, y + 0.04, z, 0.05, 0.16);
+      box(body, glow, w * 0.86, 0.02, 0.04, 0, y + 0.02, z - sz * 0.48, 0, 0.16);
+      const fin = new THREE.Mesh(new THREE.ConeGeometry(0.11, 0.38, 4), mats.paint2); fin.scale.set(0.35, 1, 1.6); fin.position.set(0, y + 0.27, z - sz * 0.1); fin.rotation.x = -0.45; body.add(fin);
+    }
+  };
+  // side armour: ribbed panels and glowing vents along the flanks, venom underglow strip
+  const flanks = (z0: number, z1: number, yTop: number) => {
+    for (const sd of [-1, 1]) {
+      box(body, mats.trim, 0.06, 0.16, z1 - z0, sd * (W / 2 + 0.02), y0 + 0.3, (z0 + z1) / 2, 0.03);
+      box(body, glow, 0.03, 0.035, z1 - z0 - 0.3, sd * (W / 2 + 0.05), y0 + 0.2, (z0 + z1) / 2);
+      for (let i = 0; i < 3; i++) box(body, glow, 0.02, 0.05, 0.32, sd * (W / 2 + 0.01), yTop - 0.35, z0 + 0.6 + i * 0.45, 0, 0, 0, sd * 0.0);
+    }
+  };
   if (m === 0) {
-    const top: P[] = [[-2.3, 0.2], [-2.3, 2.0], [0.4, 2.05], [1.1, 1.3], [2.2, 1.15], [2.35, 0.7], [2.3, 0.2]];
+    const top: P[] = [[-2.3, 0.15], [-2.3, 1.75], [-1.75, 1.97], [-0.3, 1.97], [0.7, 1.38], [1.85, 1.05], [2.42, 0.66], [2.45, 0.3], [2.3, 0.15]];
     profileBody(withArches(top, wz, ar.r, ar.y), W, 0.12, mats.paint, body, y0, c.livery);
-    windowTrim([[-1.0, 1.3], [-1.0, 1.92], [0.36, 1.95], [0.98, 1.32]], W - 0.1, s.glass, mats.trim, body, y0);
-    glassQuad([0.4, 2.04], [1.1, 1.32], W * 0.85, s.glass, body, y0);
-    box(body, mats.trim, W * 0.7, 0.5, 0.05, 0, y0 + 0.85, 2.34, 0.03);
-    for (let i = 0; i < 7; i++) box(body, s.chrome, 0.05, 0.44, 0.03, -0.45 + i * 0.15, y0 + 0.85, 2.37);
-    for (const sd of [-1, 1]) cyl(body, s.chrome, 0.1, 2.0, sd * (W / 2 - 0.12), y0 + 2.0, -1.4, 'y', 14);
-    return { hood: [1.6, y0 + 1.2, 1.0], cab: [-1.0, 1.1, y0 + 2.05, W], front: 2.4, rear: -2.3, bumperY: y0 + 0.35, lightY: y0 + 0.9, exhaust: [[W / 2 - 0.12, y0 + 3.0, -1.4], [-W / 2 + 0.12, y0 + 3.0, -1.4]], nosAt: [0, y0 + 2.2, -1.6], snorkelZ: 1.2, roofY: y0 + 2.05, stacks: true };
+    windowTrim([[-1.6, 1.5], [-1.6, 1.8], [-0.32, 1.84], [0.45, 1.44]], W - 0.08, s.glass, mats.trim, body, y0);
+    glassQuad([-0.28, 1.95], [0.66, 1.4], W * 0.86, s.glass, body, y0);
+    // the face: slanted glowing eyes, dark grille "mouth", ivory fangs
+    for (const sd of [-1, 1]) {
+      box(body, glow, 0.62, 0.075, 0.06, sd * 0.68, y0 + 0.82, 2.33, 0.02, 0, sd * 0.32, sd * 0.32);
+      box(body, mats.trim, 0.7, 0.16, 0.05, sd * 0.68, y0 + 0.9, 2.3, 0.02, 0, sd * 0.32, sd * 0.32);
+      const fang = new THREE.Mesh(new THREE.ConeGeometry(0.085, 0.7, 12), bone); fang.position.set(sd * 0.42, y0 + 0.12, 2.5); fang.rotation.set(2.75, 0, sd * 0.12); body.add(fang);
+    }
+    box(body, mats.trim, W * 0.62, 0.32, 0.06, 0, y0 + 0.45, 2.44, 0.03);
+    for (let i = 0; i < 9; i++) box(body, s.chrome, 0.035, 0.26, 0.03, -0.56 + i * 0.14, y0 + 0.45, 2.48);
+    // hood vents + scales over the cab roof, roof light bar
+    for (const sd of [-1, 1]) for (let i = 0; i < 3; i++) box(body, mats.trim, 0.28, 0.025, 0.1, sd * 0.45, y0 + 1.2 - i * 0.05, 1.05 + i * 0.22, 0, -0.32);
+    scales(-1.65, -0.35, y0 + 1.97, 3, W * 0.62);
+    box(body, mats.trim, W * 0.8, 0.1, 0.18, 0, y0 + 2.06, -0.3);
+    for (let i = 0; i < 5; i++) cyl(body, glow, 0.065, 0.05, -0.64 + i * 0.32, y0 + 2.06, -0.2, 'z', 12);
+    for (const sd of [-1, 1]) { cyl(body, s.chrome, 0.1, 2.0, sd * (W / 2 - 0.14), y0 + 2.05, -1.95, 'y', 14); cyl(body, mats.trim, 0.13, 0.6, sd * (W / 2 - 0.14), y0 + 1.7, -1.95, 'y', 14); }
+    flanks(-2.1, 1.8, y0 + 1.5);
+    return { hood: [1.55, y0 + 1.22, 1.0], cab: [-1.6, 1.3, y0 + 1.97, W], front: 2.45, rear: -2.3, bumperY: y0 + 0.3, lightY: y0 + 0.62, exhaust: [[W / 2 - 0.14, y0 + 3.05, -1.95], [-W / 2 + 0.14, y0 + 3.05, -1.95]], nosAt: [0, y0 + 2.2, -1.4], snorkelZ: 1.2, roofY: y0 + 2.1, stacks: true };
   }
   if (m === 1) {
-    profileBody(withArches([[-2.3, 0.2], [-2.3, 0.75], [2.3, 0.75], [2.3, 0.2]], wz, ar.r, ar.y), W, 0.08, mats.paint, body, y0, c.livery);
-    for (let i = 0; i < 3; i++) box(body, mats.paint2, 1.0, 0.8, 1.1, (i % 2 ? 0.4 : -0.4), y0 + 1.2, -1.3 + i * 1.3, 0.05);
-    for (const sd of [-1, 1]) box(body, s.steel, 0.06, 0.5, 4.5, sd * (W / 2 - 0.03), y0 + 1.0, 0);
-    return { hood: [0, y0 + 0.8, 1.0], cab: [-2.2, 2.2, y0 + 1.6, W], front: 2.3, rear: -2.3, bumperY: y0 + 0.35, lightY: y0 + 0.6, exhaust: [], nosAt: [0, y0 + 1.75, 0], snorkelZ: 0, roofY: y0 + 1.6, open: true };
+    profileBody(withArches([[-2.3, 0.15], [-2.3, 1.42], [-1.95, 1.72], [1.95, 1.72], [2.3, 1.42], [2.3, 0.15]], wz, ar.r, ar.y), W, 0.14, mats.paint, body, y0, c.livery);
+    scales(-2.0, 2.0, y0 + 1.72, 6, W * 0.7);
+    // armour bands + jerry cans and a recovery board on the flanks
+    for (const z of [-1.95, 1.95]) box(body, mats.trim, W + 0.06, 0.12, 0.1, 0, y0 + 1.42, z, 0.03);
+    for (const sd of [-1, 1]) { for (let i = 0; i < 2; i++) box(body, mats.paint2, 0.16, 0.45, 0.34, sd * (W / 2 + 0.1), y0 + 1.0, -0.35 + i * 0.4, 0.03); box(body, glow, 0.04, 0.22, 1.5, sd * (W / 2 + 0.04), y0 + 0.95, 1.0, 0.02); }
+    flanks(-2.1, 2.1, y0 + 1.4);
+    return { hood: [0, y0 + 1.75, 1.0], cab: [-2.2, 2.2, y0 + 1.72, W], front: 2.3, rear: -2.3, bumperY: y0 + 0.35, lightY: y0 + 0.6, exhaust: [], nosAt: [0, y0 + 1.9, 0], snorkelZ: 0, roofY: y0 + 1.85, open: true };
   }
-  profileBody(withArches([[-2.3, 0.2], [-2.32, 1.6], [-1.9, 1.85], [2.3, 1.85], [2.3, 0.2]], wz, ar.r, ar.y), W, 0.12, mats.paint, body, y0, c.livery);
-  for (const sd of [-1, 1]) for (let i = 0; i < 4; i++) box(body, mats.trim, 0.02, 0.06, 3.6, sd * (W / 2 + 0.005), y0 + 0.6 + i * 0.3, 0);
-  return { hood: [-1.0, y0 + 1.88, 1.6], cab: [-2.2, 2.2, y0 + 1.85, W], front: 2.3, rear: -2.34, bumperY: y0 + 0.35, lightY: y0 + 0.75, exhaust: [[0.6, y0 + 0.2, -2.35], [-0.6, y0 + 0.2, -2.35]], nosAt: [0, y0 + 2.0, 0], snorkelZ: 0, roofY: y0 + 1.85 };
+  // tail: tapering hull, rear wing, segmented rattle, quad exhaust and a full-width tail-light strip
+  profileBody(withArches([[-2.45, 0.42], [-2.4, 1.05], [-1.7, 1.48], [1.95, 1.68], [2.3, 1.4], [2.3, 0.15], [-1.9, 0.15]], wz, ar.r, ar.y), W, 0.14, mats.paint, body, y0, c.livery);
+  scales(-1.6, 1.9, y0 + 1.6, 5, W * 0.62);
+  box(body, c.mats.brake, W * 0.82, 0.07, 0.05, 0, y0 + 0.95, -2.41, 0.02).userData.keep = false;
+  for (const sd of [-1, 1]) { box(body, mats.trim, 0.08, 0.55, 0.3, sd * 0.7, y0 + 1.6, -1.75, 0.03, -0.3); }
+  box(body, mats.paint2, W * 0.95, 0.07, 0.55, 0, y0 + 1.9, -1.95, 0.03, 0.12);
+  for (const sd of [-1, 1]) box(body, glow, 0.02, 0.04, 0.5, sd * W * 0.47, y0 + 1.94, -1.95, 0, 0.12);
+  for (let i = 0; i < 4; i++) { const r = 0.2 - i * 0.035; const seg = new THREE.Mesh(new THREE.TorusGeometry(r, r * 0.45, 8, 16), i % 2 ? bone : mats.paint2); seg.position.set(0, y0 + 0.75, -2.5 - i * 0.13); body.add(seg); }
+  flanks(-2.0, 2.1, y0 + 1.35);
+  return { hood: [-1.0, y0 + 1.7, 1.6], cab: [-2.2, 2.2, y0 + 1.68, W], front: 2.3, rear: -2.45, bumperY: y0 + 0.35, lightY: y0 + 0.75, exhaust: [[0.75, y0 + 0.3, -2.42], [0.5, y0 + 0.3, -2.42], [-0.5, y0 + 0.3, -2.42], [-0.75, y0 + 0.3, -2.42]], nosAt: [0, y0 + 1.9, 0], snorkelZ: 0, roofY: y0 + 1.95 };
 }
+let _glow: THREE.MeshStandardMaterial | undefined, _bone: THREE.MeshStandardMaterial | undefined;
+const SNAKE_GLOW = () => (_glow ??= new THREE.MeshStandardMaterial({ color: 0x8dff3a, emissive: 0x7dff2a, emissiveIntensity: 3.2, roughness: 0.4 }));
+const SNAKE_BONE = () => (_bone ??= new THREE.MeshStandardMaterial({ color: 0xece3cc, roughness: 0.35, metalness: 0.05 }));

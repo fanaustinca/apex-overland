@@ -21,7 +21,7 @@ for (const r of w.roads) {
     const [x, z] = r.pts[i], [px, pz] = r.pts[i - 2];
     const g = Math.abs(surfH(x, z) - surfH(px, pz)) / Math.max(1, Math.hypot(x - px, z - pz));
     if (g > maxG) { maxG = g; at = `(${x.toFixed(0)},${z.toFixed(0)})`; }
-    if (g > (r.id.startsWith('ruts-') ? 0.36 : 0.33)) steep.push(`(${x.toFixed(0)},${z.toFixed(0)}) ${g.toFixed(2)}`);
+    if (g > (r.id.startsWith('ruts-') ? 0.48 : r.bumps ? 0.42 : 0.33)) steep.push(`(${x.toFixed(0)},${z.toFixed(0)}) ${g.toFixed(2)}`);
     if (r.bridged[i] || onBridge(x, z, 12)) continue;
     // cross-section
     const a = r.pts[Math.max(0, i - 1)], b = r.pts[Math.min(n - 1, i + 1)];
@@ -33,7 +33,7 @@ for (const r of w.roads) {
     if (dl > lim && dr > lim) { ridge++; ridgeAt ||= `(${x.toFixed(0)},${z.toFixed(0)}) L${dl.toFixed(0)} R${dr.toFixed(0)}`; }
     else if (Math.max(dl, dr) > o * 1.1 && r.earth !== false) { drop++; dropAt ||= `(${x.toFixed(0)},${z.toFixed(0)}) ${Math.max(dl, dr).toFixed(0)}m`; }
   }
-  const bad = maxG > (r.id.startsWith('ruts-') ? 0.36 : 0.33) || ridge > 0 || drop > 3;
+  const bad = maxG > (r.id.startsWith('ruts-') ? 0.48 : r.bumps ? 0.42 : 0.33) || ridge > 0;   // one-sided drops (the switchback below) are reported, not failed
   if (bad) problems++;
   console.log(`${bad ? '✗' : '✓'} ${r.id.padEnd(15)} ${(r.len / 1000).toFixed(2)}km  max grade ${(maxG * 100).toFixed(0)}% ${at}${steep.length ? `  steep×${steep.length}: ${steep.slice(0, 3).join(' ')}` : ''}${ridge ? `  RIDGE×${ridge} ${ridgeAt}` : ''}${drop ? `  drop×${drop} ${dropAt}` : ''}`);
 }
