@@ -72,8 +72,12 @@ export class Driver {
   }
   stuckCount = 0;
   /** Where to put the car back after a reset: a little behind the current progress point, facing along the path. */
+  private lastReset = -999;
   resetPose(): { x: number; z: number; yaw: number } {
-    const i = Math.min(this.pts.length - 2, this.idx + 2);
+    // reset again at the same spot (a missed jump, a hole): move on past the obstacle instead of looping
+    let i = Math.min(this.pts.length - 2, this.idx + 2);
+    if (Math.abs(i - this.lastReset) < 15) i = Math.min(this.pts.length - 2, Math.max(i, this.lastReset) + 25);
+    this.lastReset = i; this.idx = i;
     const a = this.pts[i], b = this.pts[i + 1];
     return { x: a[0], z: a[1], yaw: Math.atan2(b[0] - a[0], b[1] - a[1]) };
   }

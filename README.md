@@ -15,16 +15,20 @@
 | ![Low-Poly preset](docs/16-graphics-low-poly.jpg) | ![Ultra Realism preset](docs/16-graphics-ultra-realism.jpg) |
 
 ## The world
-One seamless **4 km × 4 km** world (2 m heightfield, 4.2 M samples, generated in a Web Worker at load) with 200–400 m noise-warped transition belts between four biomes, meeting at the **Central Hub Garage**:
+One seamless **5.1 km × 5.1 km** world (2 m heightfield, 6.6 M samples, generated across a pool of Web Workers at load) with 200–400 m noise-warped transition belts between four biomes, meeting at the **Central Hub Garage**:
 
 | Biome | Highlights |
 |---|---|
 | **Desert Canyon** (south) | Red-rock flats, dune sea, mesas, a deep stratified canyon with a shallow river, three bridges (steel truss, timber trestle, stone arch) and rock ramps across the canyon narrows |
-| **Dense Forest** (east) | Pines, giant redwoods and broadleaf trees that wall you onto winding dirt roads, Muddy Creek (deep pools stall engines without a snorkel), logging camp |
-| **Snowy Mountain** (north) | Mount Apex: eight icy switchbacks, summit station, Glacier Ridge, steep descent lines |
-| **Industrial Quarry** (west) | Two tiered excavation pits with spiral haul ramps, crusher plant, giant excavator, crushable site trailers, drainage culverts |
+| **Dense Forest** (east) | Pines, giant redwoods and broadleaf trees that wall you onto winding dirt roads, Muddy Creek winding down a broad valley into the canyon (bridged at every road crossing; deep pools stall engines without a snorkel), logging camp, the Ridgeback rally road |
+| **Snowy Mountain** (north) | Mount Apex: nine icy switchbacks, summit station, Glacier Ridge, the alpine pass, a frozen lake for ice racing |
+| **Industrial Quarry** (west) | Two tiered excavation pits with spiral haul ramps, crusher plant, giant excavator, crushable site trailers, drainage culverts, the West Pit motocross track |
 
-No invisible walls: every race suggests 2–3 GPS routes, but you can cut through forests, dunes and cliffs.
+The outer ring holds the **Baja run** (desert rally road with tabletop jumps) and the **Ridgeback** (eastern gravel rally stage). **11 garages**; any of them is one click away in the fast-travel list on the map.
+
+Every road is built like a real one: graded profiles, embankments at 1:2.5 and cuttings at 2:1 (no knife-edge ridge roads), junctions and crossings meet at the same height, and river crossings are proper bridges with the water flowing underneath. `npx tsx tools/audit.ts` checks all of it.
+
+No invisible walls: waypoints only guide the GPS — any line to the finish counts, so cut through forests, dunes and cliffs (the frozen-lake slalom and the MX track make you take every gate).
 
 ## Vehicles (17)
 Dirt Bike (lean physics + bunny-hop) · Dune Buggy · Rally Sedan · Offroad Limo · 4x4 Rock Crawler · Expedition SUV · Pickup · 6x6 · Dakar Rally Truck · Semi · 8x8 (four-wheel steer) · Monster Truck · School Bus · Battle Tank (tracks, neutral pivot steering) · Mining Dump Truck · and the secret **THE SNAKE 12x12** — three 4x4 modules on hydraulic hinges whose trailing axles steer to follow the hitch ahead.
@@ -34,8 +38,8 @@ Every vehicle is procedurally modelled (extruded body profiles with wheel-arch c
 ## Modular upgrades
 Engine & Drivetrain (T1–4: hood scoop → supercharger + stacks → twin turbos) · Suspension (T1–4: visible colour-coded single/dual coilovers, lift, travel) · Tires & Wheels (T1–4 diameter/grip + All-Terrain / Mud-Bogger / Sand Paddles / Spiked Snow compounds with per-surface grip) · Frame & Roll Cage (roof rails → external exo-cage) · Front Plow (bumper → bull bar → **Heavy Steel Dozer Plow** that lets heavyweights carve straight through forests) · Axles & Skid Plates · Nitrous · Snorkel · Winch. All of them change both the 3-D model and the physics.
 
-## Races (15)
-Canyon Breakout · Rim Jumper · Dune Basher · Timberline Plow · Muddy Creek Run · Logging Camp Sprint · Avalanche Switchbacks · Peak Descent · Glacier Ridge · Pit Escape · Crusher Circuit · Haul Road Havoc · and three cross-biome marathons: **Summit to Sands**, **Quarry to Glacier**, **Timber to Canyon**. AI rivals use pure-pursuit steering with curvature-based speed planning and recovery.
+## Races (20)
+Canyon Breakout · Rim Jumper · Dune Basher · Baja Blast · Timberline Plow · Muddy Creek Run · Logging Camp Sprint · Ridgeback Rally · Avalanche Switchbacks · Peak Descent · Glacier Ridge · Frozen Lake Drift · Pit Escape · Crusher Circuit · Haul Road Havoc · Quarry MX · and four cross-biome marathons: **Summit to Sands**, **Quarry to Forest**, **Timber to Canyon**, **Rim of the World**. Positions are ranked by distance still to go, so shortcuts count. AI rivals use pure-pursuit steering with curvature-based speed planning and recovery.
 
 Earn coins from races, speed traps, big jumps (the canyon narrows pay triple) and discovering outpost garages. Press **M** for the fast-travel map.
 
@@ -60,10 +64,11 @@ npm run test:e2e       # headless Chromium functional suite (SwiftShader; GPU=1 
 npm run shots          # visual verification → ./screenshots/
 npx tsx tools/sim.ts hub-east crawler   # headless vehicle/AI tuning on a road
 npx tsx tools/map.ts map.png            # top-down render of the generated world
-npx tsx tools/routes.ts                 # scan every race route for impassable grade spikes
+npx tsx tools/audit.ts                  # every road/junction/garage/race: grades, ridges, drops, dead ends
+npx tsx tools/racesim.ts                # AI drives every race headless and reports finishes/resets
 node tools/fetch-assets.mjs             # (re)download + pack the CC0 assets
 ```
-Debug API in the browser console: `AO.state()`, `AO.race('rim-jumper')`, `AO.autopilot()`, `AO.game.teleportGarage('desert')`.
+Dev console (F12): type `dev.help()` — teleports (`dev.tp`, `dev.garage`, `dev.cabin`), `dev.race`, `dev.finish`, `dev.car`, `dev.coins`, `dev.unlockAll`, `dev.barns`, `dev.pos`, `dev.fps`, `dev.preset` and more. Test API: `AO.state()`, `AO.autopilot()`.
 
 ## Credits
 Terrain textures, materials, rocks/shrubs and the HDRI are from [Poly Haven](https://polyhaven.com) (CC0) — see `public/assets/CREDITS.txt`. Everything else (vehicles, trees, world, audio) is procedural.

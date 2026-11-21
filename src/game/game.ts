@@ -22,11 +22,12 @@ import { Input } from './input';
 import { Driver } from './ai';
 import { buildRaces, type RaceDef } from './races';
 import { loadProfile, saveProfile, upgradesOf, type Profile } from './save';
+import { UPGRADE_INFO } from '../vehicles/defs';
 import { UI } from '../ui/ui';
 import { Audio } from './audio';
 import { assetUrl } from '../core/assets';
 
-declare global { interface Window { AO: any } }
+declare global { interface Window { AO: any; dev: any } }
 
 /** World generation across workers: noise rows in parallel, the sequential core in one worker, then shading rows in parallel. */
 export async function loadWorld(onLog: (s: string) => void): Promise<World> {
@@ -60,7 +61,7 @@ export async function loadWorld(onLog: (s: string) => void): Promise<World> {
 }
 
 export type Mode = 'title' | 'drive' | 'garage' | 'map' | 'pause' | 'results';
-export interface RaceRacer { e: VehicleEntity; cp: number; finished: number; driver?: Driver; lastCp: THREE.Vector3; lastYaw: number; progress: number }
+export interface RaceRacer { e: VehicleEntity; cp: number; finished: number; driver?: Driver; lastCp: THREE.Vector3; lastYaw: number; progress: number; remain: number; idx: number }
 export interface RaceState { def: RaceDef; racers: RaceRacer[]; t: number; countdown: number; gates: THREE.Group; player: RaceRacer; done: boolean; penalties: number }
 
 const texCache = new Map<string, Promise<{ diff: THREE.Texture; nor: THREE.Texture; arm?: THREE.Texture }>>();
@@ -117,7 +118,7 @@ export class Game {
     const settings = q && PRESETS[q] ? { ...PRESETS[q] } : this.profile.settings ?? { ...PRESETS[autoPreset(this.gfx.renderer)] };
     progress('Warming up the GPU', 0.02);
     await this.gfx.settle();
-    progress('Sculpting 16 km² of terrain', 0.05);
+    progress('Sculpting 26 km² of terrain', 0.05);
     await initRapier();
     let step = 0;
     this.world = await loadWorld((s) => progress('Generating world: ' + s, 0.08 + 0.05 * ++step));
@@ -206,7 +207,7 @@ export class Game {
   }
   /** Flip upright where we are (winch = free; in races without it costs a 2 s penalty). */
   recover() {
-    if (this.race) { const r = this.race.player; this.place(this.player, r.lastCp.x, r.lastCp.z, r.lastYaw); if (!this.player.v.st.winch) { this.race.penalties += 2; this.ui.toast('Recovered to last checkpoint (+2 s)', 'warn'); } else this.ui.toast('Winched back on track', 'ok'); return; }
+    if (this.race) { const r = this.race.player, path = this.race.def.path, i = Math.min(path.length - 2, r.idx), a = path[i], b = path[i + 1]; this.place(this.player, a[0], a[1], Math.atan2(b[0] - a[0], b[1] - a[1])); if (!this.player.v.st.winch) { this.race.penalties += 2; this.ui.toast('Recovered onto the route (+2 s)', 'warn'); } else this.ui.toast('Winched back on track', 'ok'); return; }
     const p = this.player.v.position();
     this.place(this.player, p.x, p.z, this.yawOf(this.player));
   }
@@ -223,7 +224,7 @@ export class Game {
     const grid = (k: number) => { const row = Math.floor(k / 2), col = k % 2 ? 1 : -1, i = Math.max(0, s0 - row * 4), y = yawAt(i); return { x: path[i][0] + Math.cos(y) * col * 2.6, z: path[i][1] - Math.sin(y) * col * 2.6, yaw: y }; };
     const ps = grid(0);
     this.place(this.player, ps.x, ps.z, ps.yaw);
-    const playerRacer: RaceRacer = { e: this.player, cp: 0, finished: 0, lastCp: new THREE.Vector3(ps.x, 0, ps.z), lastYaw: ps.yaw, progress: 0 };
+    const playerRacer: RaceRacer = { e: this.player, cp: 0, finished: 0, lastCp: new THREE.Vector3(ps.x, 0, ps.z), lastYaw: ps.yaw, progress: 0, remain: def.len, idx: 0 };
     const racers: RaceRacer[] = [playerRacer];
     const cls = this.player.def.cls;
     const pool = VEHICLES.filter((v) => v.id !== 'snake' && v.id !== this.player.def.id && (v.cls === cls || Math.abs(v.top - this.player.def.top) < 9));
@@ -236,7 +237,7 @@ export class Game {
       e.name = names[k % names.length];
       e.driver = new Driver(path, 0.92 + k * 0.03);
       this.rivals.push(e); this.register(e);
-      racers.push({ e, cp: 0, finished: 0, driver: e.driver, lastCp: new THREE.Vector3(g.x, 0, g.z), lastYaw: g.yaw, progress: 0 });
+      racers.push({ e, cp: 0, finished: 0, driver: e.driver, lastCp: new THREE.Vector3(g.x, 0, g.z), lastYaw: g.yaw, progress: 0, remain: def.len, idx: 0 });
     }
     const gates = this.buildGates(def);
     this.race = { def, racers, t: 0, countdown: 3.5, gates, player: playerRacer, done: false, penalties: 0 };
@@ -305,9 +306,9 @@ export class Game {
           if (r === R.player) this.finishRace();
         }
       }
-      // progress for positions
-      const next = cps[Math.min(r.cp, cps.length - 1)];
-      r.progress = r.cp * 1e5 - Math.hypot(p.x - next[0], p.z - next[1]);
+      // positions: distance still to go, via the best point on the route (shortcuts count)
+      this.trackRacer(R.def, r, p.x, p.z);
+      r.progress = R.def.strict ? r.cp * 1e5 - r.remain : -r.remain;
       if (r.driver) {
         // rubber band: keep the pack honest but beatable
         const ahead = r.progress - R.player.progress;
@@ -315,6 +316,26 @@ export class Game {
       }
     }
     if (R.done && R.racers.every((r) => r.finished || !r.driver)) { /* everyone in */ }
+  }
+  /** Distance to go = min over route samples of (route left from there + straight line to it); remembers the nearest sample. */
+  trackRacer(def: RaceDef, r: RaceRacer, x: number, z: number) {
+    const path = def.path; let best = 1e18, bi = r.idx, near = 1e18;
+    for (let k = 0; k < path.length; k += 3) {
+      const d = Math.hypot(path[k][0] - x, path[k][1] - z);
+      const v = def.rem[k] + d;
+      if (v < best) best = v;
+      if (d < near && Math.abs(k - r.idx) < 400) { near = d; bi = k; }
+    }
+    r.remain = Math.min(best, Math.hypot(path[path.length - 1][0] - x, path[path.length - 1][1] - z) * 1.15 + 0);
+    r.idx = bi;
+  }
+  /** Where the GPS arrow points: the next gate (strict races) or the next waypoint ahead of the racer. */
+  nextWaypoint(r: RaceRacer): [number, number] {
+    const def = this.race!.def;
+    if (def.strict) return def.cps[Math.min(r.cp, def.cps.length - 1)];
+    const ahead = Math.min(def.path.length - 1, r.idx + 60);
+    for (const c of def.cps) { const ci = def.path.findIndex((p) => p[0] === c[0] && p[1] === c[1]); if (ci >= ahead) return c; }
+    return def.cps[def.cps.length - 1];
   }
   standings() {
     const R = this.race!;
@@ -472,7 +493,7 @@ export class Game {
         const p = e.v.position(), lv = e.v.body.linvel();
         if (p.y < this.ground(p.x, p.z) - 4 || Math.hypot(lv.x, lv.y, lv.z) > 110 || !Number.isFinite(p.y)) {
           if (e.driver) { const rp = e.driver.resetPose(); this.place(e, rp.x, rp.z, rp.yaw); }
-          else if (this.race && e === this.player) { const r = this.race.player; this.place(e, r.lastCp.x, r.lastCp.z, r.lastYaw); }
+          else if (this.race && e === this.player) { const r = this.race.player, path = this.race.def.path, i = Math.min(path.length - 2, r.idx); this.place(e, path[i][0], path[i][1], Math.atan2(path[i + 1][0] - path[i][0], path[i + 1][1] - path[i][1])); }
           else this.place(e, Number.isFinite(p.x) ? p.x : 0, Number.isFinite(p.z) ? p.z : 0, this.yawOf(e));
         }
       }
@@ -608,7 +629,7 @@ export async function boot() {
     drive() { game.ui.startGame(); },
     autopilot(on = true) { game.player.driver = on ? new Driver(game.race ? game.race.def.path : game.world.roads.find((r) => r.id === 'hub-south')!.pts, 1) : undefined; },
     race(id: string) { game.startRace(id); },
-    state() { const p = game.player.v.position(); const R = game.race; return { mode: game.mode, x: p.x, y: p.y, z: p.z, kmh: game.player.v.kmh(), ground: game.ground(p.x, p.z), coins: game.profile.coins, race: R ? { id: R.def.id, cp: R.player.cp, cps: R.def.cps.length, t: R.t, countdown: R.countdown, finished: R.player.finished, pos: game.standings().indexOf(R.player) + 1 } : null, logs: game.foliage.logs.length, activeLogs: game.foliage.activeLogs, broken: game.foliage.broken, fps: game.fps, calls: game.gfx.renderer.info.render.calls, tris: game.gfx.renderer.info.render.triangles }; },
+    state() { const p = game.player.v.position(); const R = game.race; return { mode: game.mode, x: p.x, y: p.y, z: p.z, kmh: game.player.v.kmh(), ground: game.ground(p.x, p.z), coins: game.profile.coins, race: R ? { id: R.def.id, cp: R.player.cp, cps: R.def.cps.length, remain: R.player.remain, len: R.def.len, t: R.t, countdown: R.countdown, finished: R.player.finished, pos: game.standings().indexOf(R.player) + 1 } : null, logs: game.foliage.logs.length, activeLogs: game.foliage.activeLogs, broken: game.foliage.broken, fps: game.fps, calls: game.gfx.renderer.info.render.calls, tris: game.gfx.renderer.info.render.triangles }; },
     lineup(upg: Partial<Upgrades> & { dirt?: number } = {}, ids?: string[]) {
       const list = VEHICLES.filter((v) => !ids || ids.includes(v.id));
       game.gfx.scene.getObjectByName('lineup')?.removeFromParent();
@@ -631,6 +652,8 @@ export async function boot() {
     },
   };
   window.AO = api;
+  window.dev = makeDev(game, api);
+  console.info('%cAPEX OVERLAND%c dev console: type dev.help()', 'color:#ff7a1a;font-weight:bold', 'color:inherit');
   let last = performance.now();
   const loop = () => {
     const now = performance.now(), dt = Math.min(0.05, (now - last) / 1000); last = now;
@@ -640,4 +663,32 @@ export async function boot() {
   };
   requestAnimationFrame(loop);
   if (game.test) game.ui.startGame();
+}
+
+/** Chrome DevTools (F12) console commands. */
+function makeDev(game: Game, api: { advance: (s: number) => void; autopilot: (on?: boolean) => void }) {
+  const cmds: Record<string, [string, (...a: any[]) => unknown]> = {
+    help: ['list every command', () => { console.table(Object.fromEntries(Object.entries(cmds).map(([k, [d]]) => [k, d]))); return 'dev.<command>(...)'; }],
+    coins: ['coins(n = 100000): add coins', (n = 100000) => { game.profile.coins += n; saveProfile(game.profile); return game.profile.coins; }],
+    tp: ['tp(x, z, yawDeg = 0): teleport the player', (x: number, z: number, yaw = 0) => { game.teleport(x, z, yaw * Math.PI / 180); return game.player.v.position(); }],
+    garage: ['garage(id): teleport to a garage (no arg: list them)', (id?: string) => { if (!id) return GARAGES.map((g) => g.id); game.teleportGarage(id); return id; }],
+    garages: ['list garages', () => console.table(GARAGES.map((g) => ({ id: g.id, name: g.name, x: g.x, z: g.z })))],
+    races: ['list races', () => console.table(game.races.map((r) => ({ id: r.id, name: r.name, km: +(r.len / 1000).toFixed(2), strict: r.strict })))],
+    race: ['race(id): start a race', (id: string) => { game.startRace(id); return id; }],
+    finish: ['finish(): put the player on the finish line of the current race', () => { const R = game.race; if (!R) return 'no race'; const f = R.def.path[R.def.path.length - 1], b = R.def.path[R.def.path.length - 4]; if (R.def.strict) R.player.cp = R.def.cps.length - 1; game.teleport(f[0], f[1], Math.atan2(f[0] - b[0], f[1] - b[1])); return 'teleported to finish'; }],
+    quit: ['quit(): abandon the current race', () => game.endRace()],
+    car: ['car(id): switch vehicle (unlocks it; no arg: list)', (id?: string) => { if (!id) return VEHICLES.map((v) => v.id); if (!game.profile.owned.includes(id)) game.profile.owned.push(id); game.spawnPlayer(id); return id; }],
+    unlockAll: ['unlock every vehicle and max every upgrade', () => { for (const v of VEHICLES) { if (!game.profile.owned.includes(v.id)) game.profile.owned.push(v.id); const u = upgradesOf(game.profile, v.id) as unknown as Record<string, unknown>; for (const [k, info] of Object.entries(UPGRADE_INFO)) u[k] = info.max; game.profile.upgrades[v.id] = u as unknown as Upgrades; } saveProfile(game.profile); game.spawnPlayer(game.player.def.id); return 'unlocked'; }],
+    barns: ['barns(): mark all four barn finds found (unlocks The Snake)', () => { game.profile.barns = CABINS.map((c) => c.id); if (!game.profile.owned.includes('snake')) game.profile.owned.push('snake'); saveProfile(game.profile); return 'the Snake is yours'; }],
+    cabin: ['cabin(id): teleport next to a barn find (no arg: list)', (id?: string) => { if (!id) return CABINS.map((c) => c.id); const c = CABINS.find((x) => x.id === id)!; game.teleport(c.x + Math.sin(c.yaw) * 24, c.z + Math.cos(c.yaw) * 24, c.yaw + Math.PI); return c.name; }],
+    pos: ['pos(): where am I', () => { const p = game.player.v.position(); return { x: +p.x.toFixed(1), y: +p.y.toFixed(1), z: +p.z.toFixed(1), ground: +game.ground(p.x, p.z).toFixed(1), surface: game.surfaceName(), biome: game.biomeName() }; }],
+    fix: ['fix(): repair damage and refill nitro', () => { game.player.v.damage = 0; game.player.v.axleDamage = 0; game.player.v.nitro = 1; return 'repaired'; }],
+    autopilot: ['autopilot(on = true): AI drives the player (current race or road)', (on = true) => { api.autopilot(on); return on; }],
+    preset: ['preset(name): graphics preset potato | medium | high | ultra', (n: keyof typeof PRESETS) => { game.applySettings({ ...PRESETS[n] }); return n; }],
+    fps: ['fps(): current frame rate and draw stats', () => ({ fps: +game.fps.toFixed(1), calls: game.gfx.renderer.info.render.calls, tris: game.gfx.renderer.info.render.triangles })],
+    reset: ['reset(): wipe the save (reloads)', () => { localStorage.clear(); location.reload(); }],
+  };
+  const dev: Record<string, unknown> = {};
+  for (const [k, [, f]] of Object.entries(cmds)) dev[k] = f;
+  return dev;
 }

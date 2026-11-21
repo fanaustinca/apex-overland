@@ -60,7 +60,7 @@ export const GARAGES = [
   { id: 'hub', name: 'Central Hub Garage', x: -95, z: 58, yaw: Math.PI / 2, main: true },
   { id: 'desert', name: 'Dune Outpost Garage', x: 245, z: 1560, yaw: -Math.PI / 2, main: false },
   { id: 'forest', name: 'Logging Camp Garage', x: 1560, z: 360, yaw: Math.PI, main: false },
-  { id: 'snow', name: 'Summit Station Garage', x: 40, z: -1462, yaw: 0, main: false },
+  { id: 'snow', name: 'Summit Station Garage', x: 330, z: -1392, yaw: Math.PI, main: false },
   { id: 'quarry', name: 'Quarry Works Garage', x: -905, z: -300, yaw: Math.PI / 2, main: false },
   { id: 'baja', name: 'Baja Base Garage', x: -1975, z: 1560, yaw: 0.25, main: false },
   { id: 'ridgeback', name: 'Ridgeback Lodge Garage', x: 2075, z: -160, yaw: -Math.PI / 2, main: false },
@@ -75,8 +75,8 @@ const cz = (x: number) => canyonZ(x);
 export const OFFROAD: Record<string, P2[][]> = {
   'rim-jumper': [
     [[-900, cz(-900) - 120], [-650, cz(-650) - 110], [-560, cz(-560) - 150], [-450, cz(-450) - 150], [-350, cz(-350) - 75], [-350, cz(-350) - 30]],
-    [[-350, cz(-350) + 60], [-200, cz(-200) + 110], [60, cz(60) + 105], [150, cz(150) + 100]],
-    [[150, cz(150) - 100], [300, cz(300) - 140], [470, cz(470) - 110], [560, cz(560) - 75], [560, cz(560) - 30]],
+    [[-350, cz(-350) + 60], [-200, cz(-200) + 110], [40, cz(40) + 120], [125, cz(125) + 150], [150, cz(150) + 125], [150, cz(150) + 100]],
+    [[150, cz(150) - 100], [150, cz(150) - 125], [190, cz(190) - 150], [300, cz(300) - 140], [470, cz(470) - 110], [560, cz(560) - 75], [560, cz(560) - 30]],
     [[560, cz(560) + 60], [700, cz(700) + 125], [860, cz(860) + 160]],
   ],
   'dune-basher': [[[-1100, 1555], [-780, 1560], [-500, 1640], [-250, 1580], [50, 1560], [300, 1640], [600, 1580], [900, 1640], [1250, 1600]]],

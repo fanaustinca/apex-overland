@@ -111,7 +111,7 @@ export function buildRaces(roads: Road[], rivers: RiverLike[] = []): RaceDef[] {
   add('pit-escape', 'Pit Escape', 3, 'Start at the bottom of Pit A and spiral up the haul ramp to daylight and the hub.', 2400,
     B([REV('pitA-spiral'), S('hub-west', [-938, -40], [-300, 20])]), 700, { minSave: 120 });
   add('crusher-circuit', 'Crusher Circuit', 3, 'Out of Pit B past the crusher plant and the site trailers (crushable!), up the haul road to the quarry works.', 2300,
-    B([S('pitB-road', [-1060 + 200, 520], [-560, -20]), S('hub-west', [-560, -20], [-820, -60]), S('quarry-north', [-820, -60], [-780, -700])]), 600);
+    B([S('pitB-road', [-1060 + 200, 520], [-760, -52]), S('hub-west', [-760, -52], [-820, -60]), S('quarry-north', [-820, -60], [-780, -700])]), 600);
   add('haul-road-havoc', 'Haul Road Havoc', 3, 'Out of Pit B and down the haul road into the canyon mouth.', 2500,
     B([REV('pitB-spiral'), S('haul-south'), S('canyon-entry')]), 700);
   add('quarry-mx', 'Quarry MX', 3, 'The west pit motocross track: four straights, three bermed hairpins and eight tabletops. Every gate counts.', 2600,

@@ -79,14 +79,14 @@ export const ROAD_DEFS: RoadDef[] = [
   // desert
   { id: 'desert-west', kind: 'dirt', width: 8, grade: 0.12, ctrl: [[-30, 560], [-350, 780], [-640, 900], bN(BRIDGES_X[0])] },
   { id: 'desert-west-s', kind: 'dirt', width: 8, grade: 0.12, ctrl: [bS(BRIDGES_X[0]), [-820, 1450], [-1000, 1620], [-1200, 1760], [-1420, 1880]] },
-  { id: 'desert-east', kind: 'dirt', width: 9, grade: 0.12, ctrl: [[60, 820], [480, 870], [760, 900], bN(BRIDGES_X[2])] },
+  { id: 'desert-east', kind: 'dirt', width: 9, grade: 0.12, ctrl: [[60, 820], [480, 870], [760, 880], [920, 860], [995, 895], bN(BRIDGES_X[2])] },
   { id: 'desert-east-s', kind: 'dirt', width: 9, grade: 0.12, ctrl: [bS(BRIDGES_X[2]), [1080, 1380], [1250, 1600], [1300, 1800], [1440, 1910]] },
   { id: 'canyon-floor', kind: 'trail', width: 7, grade: 0.2, bank: 4, earth: false, ctrl: [...Array.from({ length: 33 }, (_, i) => -1150 + i * 40).map((x) => [x, cz(x) + 7 * Math.sin(x / 75)] as P2), [200, cz(200) + 6]] },
   { id: 'cliff-trail', kind: 'trail', width: 7, grade: 0.15, bank: 5, earth: false, ctrl: [[200, cz(200) + 6], [250, cz(250) + 24], [330, cz(330) + 42], [430, cz(430) + 60], [520, cz(520) + 86], [600, cz(600) + 130]] },
   { id: 'dune-track', kind: 'trail', width: 8, grade: 0.16, ctrl: [[600, cz(600) + 130], [590, 1450], [585, 1550], [640, 1640], [760, 1760], [800, 1940]] },
   // quarry + west
   { id: 'pitA-spiral', kind: 'haul', width: 14, grade: 0.1, ctrl: spiral(PITS[0], 0.25, 1.15) },
-  { id: 'pitB-road', kind: 'haul', width: 13, grade: 0.09, ctrl: [[-560, -20], [-700, 250], [-820, 430], [PITS[1].x + PITS[1].r - 5, PITS[1].z - 40]] },
+  { id: 'pitB-road', kind: 'haul', width: 13, grade: 0.09, ctrl: [[-760, -52], [-725, 90], [-760, 280], [-820, 430], [PITS[1].x + PITS[1].r - 5, PITS[1].z - 40]] },
   { id: 'pitB-spiral', kind: 'haul', width: 12, grade: 0.1, ctrl: spiral(PITS[1], -0.19, 0.95) },
   { id: 'haul-south', kind: 'haul', width: 14, grade: 0.09, ctrl: [[-852, 540], [-875, 700], [-1000, 795], [-1180, 795], [-1330, 880]] },
   { id: 'canyon-entry', kind: 'trail', width: 8, grade: 0.15, bank: 6, ctrl: [[-1330, 880], [-1300, 1040], [-1150, cz(-1150)]] },

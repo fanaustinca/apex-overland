@@ -3,7 +3,7 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
-import { HALF, CTRL, N, WORLD, biomeWeights, HUB, PITS } from './layout';
+import { HALF, CTRL, N, WORLD, biomeWeights, HUB, PITS, LAKES } from './layout';
 import { Simplex, hash2, smoothstep } from '../core/noise';
 import { sampleH, SEED } from './gen';
 import type { World } from './finish';
@@ -85,6 +85,7 @@ export class Foliage {
       if (this.avoid[Math.floor((z + HALF) / 8) * AV + Math.floor((x + HALF) / 8)]) continue;
       // keep clearings around buildings and set pieces
       if (CLEAR.some(([cx, cz, r]) => (x - cx) ** 2 + (z - cz) ** 2 < r * r)) continue;
+      if (LAKES.some((l) => (x - l.x) ** 2 + (z - l.z) ** 2 < (l.r + 10) ** 2)) continue;
       biomeWeights(x, z, sx.fbm(x / 1100 + 40, z / 1100 - 40, 3), bw);
       const slope = slopeAt(x, z);
       if (wet(x, z) > 90) continue;

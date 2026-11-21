@@ -28,10 +28,14 @@ function buildCorridor() {
     const [ax, az] = line[k], [bx, bz] = line[k + 1], L = Math.hypot(bx - ax, bz - az);
     for (let t = 0; t <= L; t += 4) { const x = ax + (bx - ax) * t / L, z = az + (bz - az) * t / L; const i = Math.floor((x + HALF) / 8), j = Math.floor((z + HALF) / 8); if (i >= 0 && j >= 0 && i < CM && j < CM) m[j * CM + i] = 1; }
   }
-  // dilate + blur so the pass is ~40 m wide with soft shoulders
-  for (let pass = 0; pass < 4; pass++) {
+  // dilate (±40 m flat) then blur, so the pass is ~90 m wide with soft shoulders
+  for (let pass = 0; pass < 5; pass++) {
     const src = m.slice();
-    for (let j = 1; j < CM - 1; j++) for (let i = 1; i < CM - 1; i++) { const k = j * CM + i; m[k] = Math.max(src[k], (src[k - 1] + src[k + 1] + src[k - CM] + src[k + CM]) * 0.3); }
+    for (let j = 1; j < CM - 1; j++) for (let i = 1; i < CM - 1; i++) { const k = j * CM + i; m[k] = Math.max(src[k], src[k - 1], src[k + 1], src[k - CM], src[k + CM]); }
+  }
+  for (let pass = 0; pass < 3; pass++) {
+    const src = m.slice();
+    for (let j = 1; j < CM - 1; j++) for (let i = 1; i < CM - 1; i++) { const k = j * CM + i; m[k] = (src[k] * 2 + src[k - 1] + src[k + 1] + src[k - CM] + src[k + CM]) / 6; }
   }
   return m;
 }
@@ -279,7 +283,7 @@ function carveValleys(data: WorldData) {
         const x = -HALF + i * CELL, z = -HALF + j * CELL, d = Math.hypot(x - l.x, z - l.z), k = j * V + i;
         if (d > R) continue;
         const o = Math.max(0, d - l.r);
-        data.height[k] = d < l.r ? l.h : clamp(data.height[k], l.h - o * 0.5, l.h + 0.1 + o * (0.12 + 0.6 * smoothstep(0, 60, o)));
+        data.height[k] = d < l.r ? l.h : clamp(data.height[k], l.h - o * 0.5, l.h + 0.1 + o * (0.1 + 0.32 * smoothstep(0, 90, o)));
       }
   }
 }

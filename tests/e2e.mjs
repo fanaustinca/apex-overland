@@ -19,10 +19,10 @@ await test('boots to a playable world without console errors', async () => {
   assert(bad.length === 0, bad.slice(0, 5).join('\n'));
 });
 
-await test('17 vehicles and 15 races are defined', async () => {
+await test('17 vehicles and 20 races are defined', async () => {
   const r = await page.evaluate(() => ({ races: AO.game.races.length, ids: AO.game.races.map((x) => x.id), veh: Object.keys(AO.game.profile.upgrades).length }));
-  assert(r.races >= 15, 'races ' + r.races);
-  for (const id of ['canyon-breakout', 'rim-jumper', 'dune-basher', 'timberline-plow', 'muddy-creek', 'logging-camp', 'avalanche-switchbacks', 'peak-descent', 'glacier-ridge', 'pit-escape', 'crusher-circuit', 'haul-road-havoc']) assert(r.ids.includes(id), 'missing race ' + id);
+  assert(r.races >= 20, 'races ' + r.races);
+  for (const id of ['canyon-breakout', 'rim-jumper', 'dune-basher', 'timberline-plow', 'muddy-creek', 'logging-camp', 'avalanche-switchbacks', 'peak-descent', 'glacier-ridge', 'pit-escape', 'crusher-circuit', 'haul-road-havoc', 'baja-blast', 'ridgeback-rally', 'frozen-lake', 'quarry-mx', 'rim-of-the-world']) assert(r.ids.includes(id), 'missing race ' + id);
 });
 
 await test('player spawns on the ground at the hub garage', async () => {
@@ -71,7 +71,7 @@ await test('garage upgrades change stats and the model', async () => {
   assert(r.after.up.nitro === 1 && r.after.up.snorkel === 1, 'utility upgrades not applied');
 });
 
-await test('race: countdown, checkpoints and positions', async () => {
+await test('race: countdown, progress to the finish and positions', async () => {
   const r = await page.evaluate(() => {
     const g = AO.game; g.spawnPlayer('sedan'); AO.race('logging-camp');
     const s0 = AO.state();
@@ -80,9 +80,43 @@ await test('race: countdown, checkpoints and positions', async () => {
   });
   assert(r.s0.countdown > 2, 'no countdown');
   assert(r.rivals >= 3, 'no rivals');
-  assert(r.s1.cp >= 2, 'did not reach checkpoints: ' + JSON.stringify(r.s1));
+  assert(r.s1.remain < r.s1.len - 700, 'no progress towards the finish: ' + JSON.stringify(r.s1));
   assert(r.s1.pos >= 1 && r.s1.pos <= r.rivals + 1, 'bad position');
   await page.evaluate(() => { AO.autopilot(false); AO.game.endRace(true); });
+});
+
+await test('checkpoints face the driver and are optional: a direct line to the finish wins', async () => {
+  const r = await page.evaluate(() => {
+    const g = AO.game; g.spawnPlayer('buggy'); AO.race('dune-basher'); AO.advance(4.5);
+    const gate = g.race.gates.children[0], d = g.race.def, i = d.path.findIndex((p) => p[0] === d.cps[0][0] && p[1] === d.cps[0][1]);
+    const a = d.path[i - 2], b = d.path[i + 2], fwd = [b[0] - a[0], b[1] - a[1]], L = Math.hypot(...fwd);
+    const right = [Math.cos(gate.rotation.y), -Math.sin(gate.rotation.y)];          // gate beam axis (local x)
+    const across = Math.abs((right[0] * fwd[0] + right[1] * fwd[1]) / L);
+    window.dev.finish(); AO.advance(0.5);
+    return { across, finished: g.race.player.finished > 0, cp: g.race.player.cp, cps: d.cps.length };
+  });
+  assert(r.across < 0.2, 'gate beam runs along the road (dot ' + r.across.toFixed(2) + ')');
+  assert(r.finished, 'skipping waypoints did not allow finishing: ' + JSON.stringify(r));
+  await page.evaluate(() => AO.game.endRace(true));
+});
+
+await test('every garage spawns the car level on its apron with road access', async () => {
+  const r = await page.evaluate(() => {
+    const g = AO.game; g.endRace(true); g.spawnPlayer('pickup');
+    return g.props.garagePads.map((pad) => {
+      g.teleportGarage(pad.id); AO.advance(2.5);
+      const s = AO.state();
+      return { id: pad.id, moved: Math.hypot(s.x - pad.pos.x, s.z - pad.pos.z), up: g.player.v.main.up().y };
+    });
+  });
+  for (const x of r) assert(x.moved < 3 && x.up > 0.95, `garage ${x.id}: car rolled ${x.moved.toFixed(1)} m (up ${x.up.toFixed(2)})`);
+});
+
+await test('dev console: dev.help() and commands', async () => {
+  const r = await page.evaluate(() => { const c0 = AO.game.profile.coins; const keys = Object.keys(window.dev); window.dev.help(); window.dev.coins(1234); return { keys, gained: AO.game.profile.coins - c0, garages: window.dev.garage().length, pos: window.dev.pos() }; });
+  for (const k of ['help', 'tp', 'garage', 'race', 'finish', 'car', 'coins', 'unlockAll', 'barns', 'pos', 'fps']) assert(r.keys.includes(k), 'missing dev.' + k);
+  assert(r.gained === 1234, 'dev.coins failed');
+  assert(r.garages >= 11, 'garages ' + r.garages);
 });
 
 await test('heavy vehicle with dozer plow smashes trees into physical logs', async () => {
@@ -127,12 +161,14 @@ await test('fast-travel map opens and teleports', async () => {
   const r = await page.evaluate(() => {
     const g = AO.game; g.mode = 'drive'; g.ui.toggleMap();
     const open = !!document.querySelector('.panel.mapview');
-    g.ui.closePanel(); g.teleportGarage('hub');
-    const s = AO.state();
-    return { open, d: Math.hypot(s.x + 95, s.z - 58) };
+    const items = document.querySelectorAll('.garitem').length;
+    document.querySelector('.garitem[data-g="ridgeback"] button').click();
+    const s = AO.state(), gd = g.props.garagePads.find((p) => p.id === 'ridgeback');
+    return { open, items, d: Math.hypot(s.x - gd.pos.x, s.z - gd.pos.z), mode: g.mode };
   });
   assert(r.open, 'map did not open');
-  assert(r.d < 60, 'teleport failed');
+  assert(r.items >= 11, 'garage list has ' + r.items);
+  assert(r.d < 5 && r.mode === 'drive', 'garage fast travel failed ' + JSON.stringify(r));
 });
 
 await test('graphics presets switch live without errors', async () => {
@@ -155,6 +191,7 @@ await test('renders a final frame with no errors', async () => {
 });
 
 await test('title screen DRIVE button starts the game', async () => {
+  await page.close();   // one 26 km² world in memory at a time
   const { page: p2, errors: e2 } = await openPage(browser, `http://127.0.0.1:${port}/?quality=potato`, { width: 800, height: 450 });
   await p2.waitForSelector('.title .go', { timeout: 60000 });
   await p2.click('.title .go');

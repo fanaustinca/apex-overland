@@ -2,6 +2,7 @@
 // summit station, barn-find cabins with clues, signposts, speed/jump traps.
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { sampleH } from './gen';
 import type { World } from './finish';
 import { CABINS } from './roads';
@@ -66,7 +67,36 @@ export class Props {
       gravel: new THREE.MeshStandardMaterial({ color: 0x9a8e80, roughness: 1 }),
     };
     this.bridges(); this.garages(); this.quarry(); this.loggingCamp(); this.cabins(); this.signposts(); this.traps();
+    this.mergeStatic();
     this.group.traverse((o) => { const m = o as THREE.Mesh; if (m.isMesh) { m.castShadow = true; m.receiveShadow = true; } });
+  }
+
+  /** Bake every static prop mesh into one merged mesh per material (hundreds of bridge/garage pieces → a few draw calls). */
+  private mergeStatic() {
+    this.group.updateMatrixWorld(true);
+    const byMat = new Map<THREE.Material, THREE.BufferGeometry[]>(), drop: THREE.Mesh[] = [];
+    this.group.traverse((o) => {
+      const m = o as THREE.Mesh;
+      if (!m.isMesh || !m.visible || Array.isArray(m.material)) return;
+      for (let p: THREE.Object3D | null = m; p; p = p.parent) if (p.userData.dynamic) return;
+      let g = m.geometry.index ? m.geometry.toNonIndexed() : m.geometry.clone();
+      g.applyMatrix4(m.matrixWorld);
+      for (const k of Object.keys(g.attributes)) if (!['position', 'normal', 'uv'].includes(k)) g.deleteAttribute(k);
+      if (!g.attributes.uv) g.setAttribute('uv', new THREE.Float32BufferAttribute(new Float32Array(g.attributes.position.count * 2), 2));
+      if (!g.attributes.normal) g.computeVertexNormals();
+      g.morphAttributes = {};
+      (byMat.get(m.material) ?? byMat.set(m.material, []).get(m.material)!).push(g);
+      drop.push(m);
+    });
+    for (const m of drop) m.removeFromParent();
+    // remove now-empty groups
+    for (const c of [...this.group.children]) if (!c.userData.dynamic && !(c as THREE.Mesh).isMesh) { let any = false; c.traverse((o) => { if ((o as THREE.Mesh).isMesh) any = true; }); if (!any) c.removeFromParent(); }
+    for (const [mat, gs] of byMat) {
+      const merged = mergeGeometries(gs, false);
+      if (!merged) continue;
+      merged.computeBoundingSphere();
+      const mesh = new THREE.Mesh(merged, mat); mesh.matrixAutoUpdate = false; this.group.add(mesh);
+    }
   }
 
   // ---- helpers ----
@@ -322,7 +352,7 @@ export class Props {
   private trailer(x: number, z: number, yaw: number) {
     const M = this.mats, y = this.h(x, z);
     const w = 3, h = 3, l = 9;
-    const grp = new THREE.Group(); grp.position.set(x, y, z); grp.rotation.y = yaw; this.group.add(grp);
+    const grp = new THREE.Group(); grp.position.set(x, y, z); grp.rotation.y = yaw; grp.userData.dynamic = true; this.group.add(grp);
     const inner = new THREE.Group(); grp.add(inner);
     this.add(boxUV(w, h, l, 2), M.white, 0, h / 2 + 0.6, 0, 0, inner);
     this.add(boxUV(w + 0.05, 0.3, l + 0.05, 2), M.orange, 0, h * 0.75 + 0.6, 0, 0, inner);

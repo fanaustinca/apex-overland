@@ -4,7 +4,7 @@ import type { Game } from '../game/game';
 import { VEHICLES, VEH, UPGRADE_INFO, COMPOUNDS, stats, type UpgradeKey, type Compound, type VehicleDef } from '../vehicles/defs';
 import { upgradesOf, saveProfile } from '../game/save';
 import { PRESETS, type GfxSettings } from '../render/gfx';
-import { GARAGES } from '../world/props';
+import { GARAGES, SPEED_TRAPS } from '../world/props';
 import { CABINS } from '../world/roads';
 import { BIOME_LABEL, type RaceDef } from '../game/races';
 import { HALF, CTRL, N, WORLD } from '../world/layout';
@@ -49,7 +49,7 @@ export class UI {
   private title() {
     const t = h('div', 'title');
     t.innerHTML = `<div class="logo big">APEX<span>OVERLAND</span></div>
-      <div class="sub">Open-world offroad point-to-point racing · 4 biomes · 17 vehicles · 15 races</div>
+      <div class="sub">Open-world offroad point-to-point racing · 4 biomes · 17 vehicles · 20 races · 11 garages</div>
       <div class="menu"><button class="go primary">DRIVE</button><button class="races">RACES</button><button class="set">GRAPHICS</button><button class="help">HOW TO PLAY</button></div>
       <div class="foot">Coins: ⛁ ${this.g.profile.coins.toLocaleString()} · Barn finds ${this.g.profile.barns.length}/4 · Terrain textures & rocks: Poly Haven (CC0)</div>`;
     this.root.appendChild(t);
@@ -95,12 +95,12 @@ export class UI {
     this.raceBox.classList.remove('hidden');
     const st = this.g.standings(), pos = st.indexOf(R.player) + 1;
     this.raceBox.innerHTML = `<div class="rname">${R.def.name}</div><div class="rpos"><b>${pos}</b><small>/${st.length}</small></div>
-      <div class="rtime">${fmtT(R.player.finished || R.t + R.penalties)}</div><div class="rcp">CHECKPOINT ${Math.min(R.player.cp + 1, R.def.cps.length)}/${R.def.cps.length}</div>
+      <div class="rtime">${fmtT(R.player.finished || R.t + R.penalties)}</div><div class="rcp">${R.def.strict ? `GATE ${Math.min(R.player.cp + 1, R.def.cps.length)}/${R.def.cps.length}` : `${(R.player.remain / 1000).toFixed(2)} km TO FINISH · any route`}</div>
       <ol class="rlist">${st.map((r) => `<li class="${r === R.player ? 'me' : ''}">${r.e.name}<span>${r.finished ? fmtT(r.finished) : ''}</span></li>`).join('')}</ol>`;
     if (R.countdown > 0) { this.countdownEl.classList.remove('hidden'); this.countdownEl.textContent = R.countdown > 3 ? 'READY' : String(Math.ceil(R.countdown)); }
     else if (R.countdown > -1) { this.countdownEl.textContent = 'GO!'; R.countdown -= 0; setTimeout(() => this.countdownEl.classList.add('hidden'), 700); }
     if (!R.player.finished) {
-      const c = R.def.cps[Math.min(R.player.cp, R.def.cps.length - 1)];
+      const c = this.g.nextWaypoint(R.player);
       const p = this.g.player.v.position(), f = this.g.gfx.camera.getWorldDirection(new THREE.Vector3());
       const ang = Math.atan2(c[0] - p.x, c[1] - p.z) - Math.atan2(f.x, f.z);
       this.arrow.classList.remove('hidden');
@@ -111,7 +111,7 @@ export class UI {
 
   // ---------------- map image ----------------
   private buildMapImage() {
-    const w = this.g.world, S = 1024;
+    const w = this.g.world, S = CTRL;
     const c = document.createElement('canvas'); c.width = S; c.height = S;
     const ctx = c.getContext('2d')!, img = ctx.createImageData(S, S);
     const cols = [[196, 120, 80], [176, 116, 86], [160, 96, 66], [74, 86, 52], [96, 124, 64], [238, 242, 246], [128, 120, 108], [150, 138, 120], [96, 78, 58], [146, 120, 92], [170, 150, 120], [80, 80, 82]];
@@ -131,6 +131,7 @@ export class UI {
     this.mapImg = c;
   }
   private w2m(x: number, z: number, S: number) { return [(x + HALF) / WORLD * S, (z + HALF) / WORLD * S]; }
+  private w2mm(x: number, z: number, _S: number) { return this.w2m(x, z, CTRL); }
 
   private drawMinimap() {
     const ctx = this.miniCtx, S = 240, g = this.g, p = g.player.v.position();
@@ -140,21 +141,21 @@ export class UI {
     ctx.save(); ctx.clearRect(0, 0, S, S);
     ctx.beginPath(); ctx.arc(S / 2, S / 2, S / 2 - 2, 0, Math.PI * 2); ctx.clip();
     ctx.translate(S / 2, S / 2); ctx.rotate(Math.PI + heading); ctx.scale(scale, scale);
-    const [mx, mz] = this.w2m(p.x, p.z, 1024);
+    const [mx, mz] = this.w2mm(p.x, p.z, 1024);
     ctx.drawImage(this.mapImg, -mx, -mz);
     // race routes (GPS)
     const R = g.race;
     if (R) {
       ctx.lineCap = 'round'; ctx.lineJoin = 'round';
       ctx.setLineDash([6, 5]); ctx.strokeStyle = 'rgba(90,220,255,0.9)'; ctx.lineWidth = 2.2 / scale * 1.6;
-      for (const a of R.def.alts) { ctx.beginPath(); a.forEach(([x, z], i) => { const [u, v] = this.w2m(x, z, 1024); i ? ctx.lineTo(u - mx, v - mz) : ctx.moveTo(u - mx, v - mz); }); ctx.stroke(); }
+      for (const a of R.def.alts) { ctx.beginPath(); a.forEach(([x, z], i) => { const [u, v] = this.w2mm(x, z, 1024); i ? ctx.lineTo(u - mx, v - mz) : ctx.moveTo(u - mx, v - mz); }); ctx.stroke(); }
       ctx.setLineDash([]); ctx.strokeStyle = '#ff7a1a'; ctx.lineWidth = 3.2 / scale * 1.6;
-      ctx.beginPath(); R.def.path.forEach(([x, z], i) => { if (i % 3) return; const [u, v] = this.w2m(x, z, 1024); i ? ctx.lineTo(u - mx, v - mz) : ctx.moveTo(u - mx, v - mz); }); ctx.stroke();
-      R.def.cps.forEach(([x, z], i) => { if (i < R.player.cp) return; const [u, v] = this.w2m(x, z, 1024); ctx.fillStyle = i === R.player.cp ? '#fff' : i === R.def.cps.length - 1 ? '#4f8' : '#ffb347'; ctx.beginPath(); ctx.arc(u - mx, v - mz, (i === R.player.cp ? 4 : 2.6) / scale * 1.6, 0, Math.PI * 2); ctx.fill(); });
-      for (const r of R.racers) if (r !== R.player) { const q = r.e.v.position(); const [u, v] = this.w2m(q.x, q.z, 1024); ctx.fillStyle = '#ff3b3b'; ctx.beginPath(); ctx.arc(u - mx, v - mz, 2.4, 0, Math.PI * 2); ctx.fill(); }
+      ctx.beginPath(); R.def.path.forEach(([x, z], i) => { if (i % 3) return; const [u, v] = this.w2mm(x, z, 1024); i ? ctx.lineTo(u - mx, v - mz) : ctx.moveTo(u - mx, v - mz); }); ctx.stroke();
+      R.def.cps.forEach(([x, z], i) => { if (i < R.player.cp) return; const [u, v] = this.w2mm(x, z, 1024); ctx.fillStyle = i === R.player.cp ? '#fff' : i === R.def.cps.length - 1 ? '#4f8' : '#ffb347'; ctx.beginPath(); ctx.arc(u - mx, v - mz, (i === R.player.cp ? 4 : 2.6) / scale * 1.6, 0, Math.PI * 2); ctx.fill(); });
+      for (const r of R.racers) if (r !== R.player) { const q = r.e.v.position(); const [u, v] = this.w2mm(q.x, q.z, 1024); ctx.fillStyle = '#ff3b3b'; ctx.beginPath(); ctx.arc(u - mx, v - mz, 2.4, 0, Math.PI * 2); ctx.fill(); }
     } else {
-      for (const rd of g.races) { const [u, v] = this.w2m(rd.path[0][0], rd.path[0][1], 1024); ctx.fillStyle = '#ff7a1a'; ctx.fillRect(u - mx - 2.5, v - mz - 2.5, 5, 5); }
-      for (const gp of g.props.garagePads) { const [u, v] = this.w2m(gp.pos.x, gp.pos.z, 1024); ctx.fillStyle = '#5be0ff'; ctx.beginPath(); ctx.arc(u - mx, v - mz, 3, 0, Math.PI * 2); ctx.fill(); }
+      for (const rd of g.races) { const [u, v] = this.w2mm(rd.path[0][0], rd.path[0][1], 1024); ctx.fillStyle = '#ff7a1a'; ctx.fillRect(u - mx - 2.5, v - mz - 2.5, 5, 5); }
+      for (const gp of g.props.garagePads) { const [u, v] = this.w2mm(gp.pos.x, gp.pos.z, 1024); ctx.fillStyle = '#5be0ff'; ctx.beginPath(); ctx.arc(u - mx, v - mz, 3, 0, Math.PI * 2); ctx.fill(); }
     }
     ctx.restore();
     // player arrow (always up)
@@ -179,11 +180,14 @@ export class UI {
     const list = p.querySelector('.racelist')!;
     const groups: [string, RaceDef[]][] = [[BIOME_LABEL[0], []], [BIOME_LABEL[1], []], [BIOME_LABEL[2], []], [BIOME_LABEL[3], []], ['Cross-Biome Marathons', []]];
     for (const r of this.g.races) groups[r.biome === 'marathon' ? 4 : r.biome][1].push(r);
-    list.innerHTML = groups.map(([name, rs]) => `<h3>${name}</h3>` + rs.map((r) => {
+    list.innerHTML = `<h3>Fast travel · Garages</h3>` + GARAGES.map((gd) => `<div class="raceitem garitem" data-g="${gd.id}"><b>${gd.name}</b><span>${this.g.profile.found.includes('garage:' + gd.id) || gd.main ? 'visited' : 'not yet visited'}</span><button>TRAVEL</button></div>`).join('') + groups.map(([name, rs]) => `<h3>${name}</h3>` + rs.map((r) => {
       const best = this.g.profile.best[r.id], win = this.g.profile.wins[r.id];
       return `<div class="raceitem" data-id="${r.id}"><b>${r.name}</b><span>${(r.path.length * 3 / 1000).toFixed(1)} km · ⛁ ${r.reward.toLocaleString()}${best ? ` · best ${fmtT(best)}` : ''}${win ? ` · ${['🥇', '🥈', '🥉'][win - 1] ?? '#' + win}` : ''}</span><button>RACE</button></div>`;
     }).join('')).join('');
-    list.querySelectorAll('.raceitem').forEach((el) => {
+    list.querySelectorAll('.garitem').forEach((el) => {
+      el.querySelector('button')!.addEventListener('click', () => { const id = (el as HTMLElement).dataset.g!; if (this.g.race) this.g.endRace(); this.closePanel(); this.g.teleportGarage(id); this.toast(`Teleported to ${GARAGES.find((x) => x.id === id)!.name}`, 'ok'); });
+    });
+    list.querySelectorAll('.raceitem:not(.garitem)').forEach((el) => {
       el.querySelector('button')!.addEventListener('click', () => { this.closePanel(); this.g.startRace((el as HTMLElement).dataset.id!); });
       el.addEventListener('mouseenter', () => { this.hoverRace = (el as HTMLElement).dataset.id!; });
       el.addEventListener('mouseleave', () => { this.hoverRace = ''; });
@@ -217,9 +221,8 @@ export class UI {
   private mapIcons() {
     const icons: { kind: string; id: string; u: number; v: number; label: string }[] = [];
     for (const gd of GARAGES) {
-      const found = gd.main || this.g.profile.found.includes('garage:' + gd.id);
       const [u, v] = this.w2m(gd.x, gd.z, 1024);
-      if (found) icons.push({ kind: 'garage', id: gd.id, u, v, label: gd.name });
+      icons.push({ kind: 'garage', id: gd.id, u, v, label: gd.name });
     }
     for (const r of this.g.races) { const [u, v] = this.w2m(r.path[0][0], r.path[0][1], 1024); icons.push({ kind: 'race', id: r.id, u, v, label: r.name }); }
     for (const c of CABINS) if (this.g.profile.barns.includes(c.id)) { const [u, v] = this.w2m(c.x, c.z, 1024); icons.push({ kind: 'barn', id: c.id, u, v, label: c.name }); }
@@ -229,7 +232,7 @@ export class UI {
     const cv = this.panel?.querySelector('.mapc') as HTMLCanvasElement | null;
     if (!cv) return;
     const ctx = cv.getContext('2d')!;
-    ctx.drawImage(this.mapImg, 0, 0);
+    ctx.drawImage(this.mapImg, 0, 0, 1024, 1024);
     const shown = this.g.race?.def ?? this.g.races.find((r) => r.id === this.hoverRace);
     if (shown) {
       ctx.lineCap = 'round'; ctx.setLineDash([8, 6]); ctx.strokeStyle = 'rgba(90,220,255,0.95)'; ctx.lineWidth = 3;
@@ -245,7 +248,7 @@ export class UI {
       ctx.fillStyle = col; ctx.beginPath(); if (ic.kind === 'race') { ctx.moveTo(ic.u - 6, ic.v + 6); ctx.lineTo(ic.u - 6, ic.v - 7); ctx.lineTo(ic.u + 6, ic.v - 3); ctx.lineTo(ic.u - 4, ic.v + 1); } else ctx.arc(ic.u, ic.v, 6, 0, 7); ctx.fill();
       if (ic.kind !== 'race' || ic.id === this.hoverRace) { ctx.fillStyle = '#fff'; ctx.strokeStyle = '#000'; ctx.lineWidth = 3; ctx.strokeText(ic.label, ic.u, ic.v - 15); ctx.fillText(ic.label, ic.u, ic.v - 15); }
     }
-    for (const s of [{ x: 35, z: 420 }, { x: -430, z: 6 }, { x: 165, z: 1520 }, { x: 610, z: 20 }, { x: 300, z: -1435 }]) { const [u, v] = this.w2m(s.x, s.z, 1024); ctx.fillStyle = '#ffd21a'; ctx.fillRect(u - 4, v - 4, 8, 8); }
+    for (const s of SPEED_TRAPS) { const [u, v] = this.w2m(s.x, s.z, 1024); ctx.fillStyle = '#ffd21a'; ctx.fillRect(u - 4, v - 4, 8, 8); }
     const p = this.g.player.v.position(), f = this.g.player.v.main.forward();
     const [u, v] = this.w2m(p.x, p.z, 1024);
     ctx.save(); ctx.translate(u, v); ctx.rotate(Math.atan2(-f.x, f.z) + Math.PI);
@@ -280,8 +283,8 @@ export class UI {
     const p = this.openPanel('help');
     p.innerHTML = `<h2>HOW TO PLAY</h2><div class="cols">
       <div><h3>Driving</h3><p><b>W / ↑</b> throttle · <b>S / ↓</b> brake & reverse · <b>A D</b> steer<br><b>Space</b> handbrake (bike: bunny-hop) · <b>Shift</b> nitrous · <b>R</b> recover<br><b>C</b> chase / far / hood camera · drag mouse to look around · wheel to zoom<br>Gamepad: RT/LT throttle/brake, stick steer, A handbrake, B nitro.</p>
-      <h3>World</h3><p>One seamless 4 × 4 km world: Desert Canyon (south), Dense Forest (east), Snowy Mountain (north) and Industrial Quarry (west), meeting at the Central Hub Garage. There are no invisible walls — cut through dunes, forests and cliffs.</p></div>
-      <div><h3>Earning coins</h3><p>Win races, blast through <b>speed traps</b> (yellow on the map), land <b>big jumps</b> (the canyon narrows pay triple) and discover outpost garages.</p>
+      <h3>World</h3><p>One seamless 5 × 5 km world: Desert Canyon (south), Dense Forest (east), Snowy Mountain (north) and Industrial Quarry (west), meeting at the Central Hub Garage. There are no invisible walls — cut through dunes, forests and cliffs.</p></div>
+      <div><h3>Earning coins</h3><p>Races are point to point: waypoints show the GPS route, but only the finish counts — take any line you dare (the frozen-lake slalom and the MX track make you take every gate). Win races, blast through <b>speed traps</b> (yellow on the map), land <b>big jumps</b> (the canyon narrows pay triple) and discover outpost garages.</p>
       <h3>Garage & upgrades</h3><p>Press <b>G</b> near any garage. Engine, suspension, tyres (and compounds for sand, mud and snow), frame/cage, front plow, axles/skid plates, nitrous, snorkel and winch all change both handling and the 3-D model. A <b>Heavy Steel Dozer Plow</b> on a heavyweight or juggernaut lets you carve straight through forests.</p>
       <h3>The Snake</h3><p>Somewhere off the main trails four weathered barns hide the parts of a 12×12 articulated monster. Look for faint tyre ruts, broken fences, old signposts and chimney smoke.</p></div></div>
       <button class="primary back">BACK</button>`;
