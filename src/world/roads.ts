@@ -145,7 +145,7 @@ class Router {
     for (let j = 0; j < RN; j++) for (let i = 0; i < RN; i++) { const k = j * RN + i; this.relief[k] = Math.max(0, Math.abs(sampleH(data.height, -HALF + i * RG, -HALF + j * RG) - this.h[k]) - 2.5); }
   }
   /** A* over (node, heading) states: a turning cost makes it build long switchback legs with real hairpins. */
-  route(a: P2, b: P2, gmax: number): P2[] {
+  route(a: P2, b: P2, gmax: number, inHeading?: number): P2[] {
     const node = (p: P2) => clamp(Math.round((p[1] + HALF) / RG), 0, RN - 1) * RN + clamp(Math.round((p[0] + HALF) / RG), 0, RN - 1);
     const s0 = node(a), t = node(b), ti = t % RN, tj = (t / RN) | 0;
     const ND = 16;
@@ -166,7 +166,12 @@ class Router {
     const ax = (a[0] + HALF) / RG, az = (a[1] + HALF) / RG, bx = (b[0] + HALF) / RG, bz = (b[1] + HALF) / RG;
     const lx = bx - ax, lz = bz - az, l2 = lx * lx + lz * lz || 1, corr = Math.max(260, 0.45 * Math.sqrt(l2) * RG) / RG;
     const inCorr = (i: number, j: number) => { let u = ((i - ax) * lx + (j - az) * lz) / l2; u = u < 0 ? 0 : u > 1 ? 1 : u; const dx = ax + lx * u - i, dz = az + lz * u - j; return dx * dx + dz * dz < corr * corr; };
-    for (let d = 0; d < ND; d++) { const st = s0 * ND + d; G[st] = 0; this.touched.push(st); push(0, st); }
+    for (let d = 0; d < ND; d++) {
+      // continue the previous leg's heading through a waypoint (no kinks where two legs meet)
+      let c0 = 0;
+      if (inHeading !== undefined) { let dd = Math.abs(D[d][3] - inHeading); if (dd > Math.PI) dd = 2 * Math.PI - dd; if (dd > 0.5) continue; c0 = 2 + dd * 14; }
+      const st = s0 * ND + d; G[st] = c0; this.touched.push(st); push(c0, st);
+    }
     let end = -1, iter = 0;
     while (hf.length && iter++ < 6_000_000) {
       const cs = pop();
@@ -176,7 +181,7 @@ class Router {
       C[cs] = 1;
       const ci = c % RN, cj = (c / RN) | 0, hc = H[c], gc = G[cs], tb = cd * ND;
       for (let nd = 0; nd < ND; nd++) {
-        const tc = c === s0 ? 0 : turn[tb + nd];
+        const tc = c === s0 && inHeading === undefined ? 0 : turn[tb + nd];
         if (tc === Infinity) continue;
         const ni = ci + DI[nd], nj = cj + DJ[nd];
         if (ni < 0 || nj < 0 || ni >= RN || nj >= RN || !inCorr(ni, nj)) continue;
@@ -194,7 +199,7 @@ class Router {
       }
     }
     if ((globalThis as { process?: { env: Record<string, string> } }).process?.env?.ROUTE_DEBUG) console.log('route', a.map(Math.round), b.map(Math.round), end < 0 ? 'FAILED' : 'ok', iter);
-    if (end < 0) return gmax < 0.5 ? this.route(a, b, gmax * 1.6) : [a, b];
+    if (end < 0) return inHeading !== undefined ? this.route(a, b, gmax) : gmax < 0.5 ? this.route(a, b, gmax * 1.6) : [a, b];
     const out: P2[] = [];
     for (let st = end; st !== -1 && out.length < 100000; st = this.from[st]) { const n = (st / ND) | 0; out.push([-HALF + (n % RN) * RG, -HALF + ((n / RN) | 0) * RG]); }
     out.reverse();
@@ -338,7 +343,9 @@ export function buildRoads(data: WorldData, pads: Pad[] = []): { roads: Road[]; 
       path = [ctrl[0]];
       for (let k = 0; k < ctrl.length - 1; k++) {
         const a = ctrl[k], b = ctrl[k + 1];
-        const leg = Math.hypot(b[0] - a[0], b[1] - a[1]) < 80 ? [a, b] : router.route(a, b, def.grade * 0.85);
+        let hd: number | undefined;
+        if (path.length >= 3) { const p1 = path[path.length - 1], p0 = path[path.length - 3]; hd = Math.atan2(p1[1] - p0[1], p1[0] - p0[0]); }
+        const leg = Math.hypot(b[0] - a[0], b[1] - a[1]) < 80 ? [a, b] : router.route(a, b, def.grade * 0.85, hd);
         for (let i = 1; i < leg.length; i++) path.push(leg[i]);
       }
     }

@@ -2,7 +2,7 @@
 import * as THREE from 'three';
 import { Vehicle, type Controls, NO_INPUT, type Env } from '../vehicles/vehicle';
 import { buildVisual, type VehicleVisual } from '../vehicles/models';
-import { stats, type VehicleDef, type Upgrades } from '../vehicles/defs';
+import { stats, type VehicleDef, type Upgrades , modsOf} from '../vehicles/defs';
 import type { Physics } from '../physics/physics';
 import type { Driver } from './ai';
 import { stretch } from '../vehicles/parts';
@@ -24,7 +24,7 @@ export class VehicleEntity {
   constructor(public phys: Physics, public def: VehicleDef, public up: Upgrades, pos: { x: number; y: number; z: number }, yaw: number, public scene: THREE.Object3D) {
     const st = stats(def, up);
     this.v = new Vehicle(phys, def, up, st, pos, yaw);
-    const mods = def.special === 'snake' ? 3 : 1;
+    const mods = modsOf(def);
     for (let m = 0; m < mods; m++) {
       const vis = buildVisual(def, up, st, m);
       scene.add(vis.root);

@@ -1,6 +1,6 @@
 // Vehicle dynamics on top of Rapier's ray-cast vehicle controller. DOM-free so node tools can simulate it.
 import { RAPIER, G, groups, type Physics } from '../physics/physics';
-import { COMPOUNDS, ROLL, type VehicleDef, type Upgrades, type Stats } from './defs';
+import { COMPOUNDS, ROLL, SNAKE_GAP, modsOf, type VehicleDef, type Upgrades, type Stats } from './defs';
 
 export interface Controls { throttle: number; brake: number; steer: number; handbrake: boolean; nitro: boolean; hop: boolean }
 export const NO_INPUT: Controls = { throttle: 0, brake: 0, steer: 0, handbrake: false, nitro: false, hop: false };
@@ -70,24 +70,32 @@ export class Chassis {
   destroy() { this.phys.world.removeVehicleController(this.ctrl); this.phys.world.removeRigidBody(this.body); }
 }
 
+/** single-axle snake segments steer their axle by this fraction of the yaw difference to the segment ahead */
+export let SNAKE_FOLLOW = 1.0, SNAKE_PITCH_K = 6;
+export const setSnakePitch = (k: number) => { SNAKE_PITCH_K = k; };
+export const setSnakeFollow = (k: number) => { SNAKE_FOLLOW = k; };
 export class Vehicle {
+  /** ground height lookup (set by the game / tools) so every module of an articulated vehicle spawns on its own patch of ground */
+  static groundAt: ((x: number, z: number) => number) | null = null;
+  private static modY(pos: V3, x: number, z: number) { const g = Vehicle.groundAt; return g ? pos.y - g(pos.x, pos.z) + Math.max(g(x, z), g(x + 1.2, z), g(x - 1.2, z), g(x, z + 1.2), g(x, z - 1.2)) + (x !== pos.x || z !== pos.z ? 0.35 : 0) : pos.y; }
   parts: Chassis[] = [];
   joints: RAPIER.ImpulseJoint[] = [];
   rpm = 900; gear = 1; nitro = 1; boosting = false; damage = 0; stalled = -2; airTime = 0; lastLandV = 0;
   plowHits = 0; inWater = 0; onGround = false; flippedT = 0; throttle = 0; brakeOn = false; mass: number;
   lastLanding = 0; axleDamage = 0; lastAir = 0;
   constructor(public phys: Physics, public def: VehicleDef, public up: Upgrades, public st: Stats, pos: V3, yaw: number) {
-    const mods = def.special === 'snake' ? 3 : 1;
+    const mods = modsOf(def);
     this.mass = def.mass * mods;
     const fx = Math.sin(yaw), fz = Math.cos(yaw);
     for (let m = 0; m < mods; m++) {
-      const off = m * (def.len + 1.1);
-      this.parts.push(new Chassis(phys, def, st, { x: pos.x - fx * off, y: pos.y, z: pos.z - fz * off }, yaw, def.mass));
+      const off = m * (def.len + SNAKE_GAP);
+      const x = pos.x - fx * off, z = pos.z - fz * off;
+      this.parts.push(new Chassis(phys, def, st, { x, y: Vehicle.modY(pos, x, z), z }, yaw, def.mass));
     }
     for (let m = 0; m < mods - 1; m++) {
       const a = this.parts[m], b = this.parts[m + 1];
       const y = def.ride + st.rideLift + 0.4;
-      const jd = RAPIER.JointData.spherical({ x: 0, y, z: -def.len / 2 - 0.55 }, { x: 0, y, z: def.len / 2 + 0.55 });
+      const jd = RAPIER.JointData.spherical({ x: 0, y, z: -def.len / 2 - SNAKE_GAP / 2 }, { x: 0, y, z: def.len / 2 + SNAKE_GAP / 2 });
       const j = phys.world.createImpulseJoint(jd, a.body, b.body, true);
       j.setContactsEnabled(false);
       this.joints.push(j);
@@ -153,7 +161,7 @@ export class Vehicle {
           const fa = this.parts[pi - 1].forward(), fb = p.forward();
           let yd = Math.atan2(fa.x, fa.z) - Math.atan2(fb.x, fb.z);
           if (yd > Math.PI) yd -= Math.PI * 2; if (yd < -Math.PI) yd += Math.PI * 2;
-          w.steer = Math.max(-0.6, Math.min(0.6, d.wheels[i].z > 0 ? yd * 1.1 : -yd * 0.6));
+          w.steer = Math.max(-0.6, Math.min(0.6, d.wheels.length <= 2 ? yd * SNAKE_FOLLOW : d.wheels[i].z > 0 ? yd * 1.1 : -yd * 0.6));
           sf = 1;
         }
         ctrl.setWheelSteering(i, w.steer);
@@ -252,19 +260,25 @@ export class Vehicle {
         b.applyTorqueImpulse({ x: 0, y: yawT * (Math.abs(c.steer) > 0.05 ? 1 : 0.4), z: 0 }, true);
       }
     }
-    // snake: hydraulic hinges keep the modules' roll aligned and damp the yaw snaking
+    // snake: hydraulic hinges. Yaw is free (damped), pitch is a stiff spring so the chain flexes over crests but no
+    // single-axle segment can somersault, roll is held firm.
     for (let m = 1; m < nParts; m++) {
-      const a = this.parts[m - 1].body, b = this.parts[m].body;
-      const ua = this.parts[m - 1].up(), ub = this.parts[m].up();
-      const fa = this.parts[m - 1].forward();
-      const cross = { x: ub.y * ua.z - ub.z * ua.y, y: ub.z * ua.x - ub.x * ua.z, z: ub.x * ua.y - ub.y * ua.x };
-      const rollErr = cross.x * fa.x + cross.y * fa.y + cross.z * fa.z;
-      const k = rollErr * d.mass * dt * 6;
-      b.applyTorqueImpulse({ x: fa.x * k, y: fa.y * k, z: fa.z * k }, true);
-      a.applyTorqueImpulse({ x: -fa.x * k, y: -fa.y * k, z: -fa.z * k }, true);
-      const dyaw = (b.angvel().y - a.angvel().y) * d.mass * dt * 0.8;
+      const pa = this.parts[m - 1], pb = this.parts[m], a = pa.body, b = pb.body;
+      const ua = pa.up(), ub = pb.up(), fa = pa.forward(), fb = pb.forward(), ra = pa.right();
+      const cr = (p: V3, q: V3) => ({ x: p.y * q.z - p.z * q.y, y: p.z * q.x - p.x * q.z, z: p.x * q.y - p.y * q.x });
+      const dot = (p: V3, q: V3) => p.x * q.x + p.y * q.y + p.z * q.z;
+      const rollErr = dot(cr(ub, ua), fa), pitchErr = dot(cr(fb, fa), ra);
+      const wa = a.angvel(), wb = b.angvel(), dw = { x: wb.x - wa.x, y: wb.y - wa.y, z: wb.z - wa.z };
+      const I = d.mass * (d.len * d.len + d.hgt * d.hgt) / 12;
+      const kr = (rollErr * d.mass * 9.81 * 3.0 - dot(dw, fa) * I * 8) * dt;
+      const kp = (pitchErr * d.mass * 9.81 * SNAKE_PITCH_K - dot(dw, ra) * I * 6) * dt;
+      const t = { x: fa.x * kr + ra.x * kp, y: fa.y * kr + ra.y * kp, z: fa.z * kr + ra.z * kp };
+      b.applyTorqueImpulse(t, true); a.applyTorqueImpulse({ x: -t.x, y: -t.y, z: -t.z }, true);
+      const dyaw = (wb.y - wa.y) * d.mass * dt * 0.8;
       b.applyTorqueImpulse({ x: 0, y: -dyaw, z: 0 }, true); a.applyTorqueImpulse({ x: 0, y: dyaw, z: 0 }, true);
     }
+    // numerical guard: a constraint blow-up must never fling modules across the map
+    for (const p of this.parts) { const v = p.body.linvel(), sp = Math.hypot(v.x, v.y, v.z); if (sp > 75) { const k = 20 / sp; p.body.setLinvel({ x: v.x * k, y: v.y * k, z: v.z * k }, true); p.body.setAngvel({ x: 0, y: 0, z: 0 }, true); } }
     // airtime + landings
     const vy = this.body.linvel().y;
     if (!anyContact) { this.airTime += dt; this.lastLandV = Math.min(this.lastLandV, vy); }
@@ -288,8 +302,9 @@ export class Vehicle {
   reset(pos: V3, yaw: number) {
     const fx = Math.sin(yaw), fz = Math.cos(yaw);
     this.parts.forEach((p, m) => {
-      const off = m * (this.def.len + 1.1);
-      p.body.setTranslation({ x: pos.x - fx * off, y: pos.y, z: pos.z - fz * off }, true);
+      const off = m * (this.def.len + SNAKE_GAP);
+      const x = pos.x - fx * off, z = pos.z - fz * off;
+      p.body.setTranslation({ x, y: Vehicle.modY(pos, x, z), z }, true);
       p.body.setRotation({ x: 0, y: Math.sin(yaw / 2), z: 0, w: Math.cos(yaw / 2) }, true);
       p.body.setLinvel({ x: 0, y: 0, z: 0 }, true); p.body.setAngvel({ x: 0, y: 0, z: 0 }, true);
     });

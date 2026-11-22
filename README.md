@@ -21,7 +21,7 @@ One seamless **5.1 km × 5.1 km** world (2 m heightfield, 6.6 M samples, generat
 |---|---|
 | **Desert Canyon** (south) | Red-rock flats, dune sea, mesas, a deep stratified canyon with a shallow river, three bridges (steel truss, timber trestle, stone arch) and rock ramps across the canyon narrows |
 | **Dense Forest** (east) | Pines, giant redwoods and broadleaf trees that wall you onto winding dirt roads, Muddy Creek winding down a broad valley into the canyon (bridged at every road crossing; deep pools stall engines without a snorkel), logging camp, the Ridgeback rally road |
-| **Snowy Mountain** (north) | Mount Apex: nine icy switchbacks, summit station, Glacier Ridge, the alpine pass, a frozen lake for ice racing |
+| **Snowy Mountain** (north) | Mount Apex: packed-snow switchbacks between plough berms, summit station, Glacier Ridge, the alpine pass, a frozen lake for ice racing |
 | **Industrial Quarry** (west) | Two tiered excavation pits with spiral haul ramps, crusher plant, giant excavator, crushable site trailers, drainage culverts, the West Pit motocross track |
 
 The outer ring holds the **Baja run** (desert rally road with tabletop jumps) and the **Ridgeback** (eastern gravel rally stage). **11 garages**; any of them is one click away in the fast-travel list on the map.
@@ -34,7 +34,7 @@ No invisible walls: waypoints only guide the GPS — any line to the finish coun
 |---|---|
 
 ## Vehicles (17)
-Dirt Bike (lean physics + bunny-hop) · Dune Buggy · Rally Sedan · Offroad Limo · 4x4 Rock Crawler · Expedition SUV · Pickup · 6x6 · Dakar Rally Truck · Semi · 8x8 (four-wheel steer) · Monster Truck · School Bus · Battle Tank (tracks, neutral pivot steering) · Mining Dump Truck · and the secret **THE SNAKE 12x12** — three 4x4 modules on hydraulic hinges whose trailing axles steer to follow the hitch ahead.
+Dirt Bike (lean physics + bunny-hop) · Dune Buggy · Rally Sedan · Offroad Limo · 4x4 Rock Crawler · Expedition SUV · Pickup · 6x6 · Dakar Rally Truck · Semi · 8x8 (four-wheel steer) · Monster Truck · School Bus · Battle Tank (tracks, neutral pivot steering) · Mining Dump Truck · and the secret **THE SNAKE 12x12** — six single-axle segments on five short hydraulic articulation joints (springy pitch, firm roll, free yaw) whose axles steer to follow the segment ahead.
 
 Every vehicle is procedurally modelled (extruded body profiles with wheel-arch cut-outs, clear-coat paint with liveries, tinted glass, lathe-turned tyres with real tread lugs, live suspension links) and accumulates mud, dust and snow from the surfaces it drives on.
 

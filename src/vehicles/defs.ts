@@ -20,6 +20,9 @@ export interface VehicleDef {
   intake: number;                                     // engine air intake height above ground (stall depth)
 }
 
+/** The Snake: six single-axle segments on five articulation joints (hinge GAP metres apart, module ends to hinge = GAP/2). */
+export const SNAKE_MODS = 6, SNAKE_GAP = 0.56;
+export const modsOf = (d: { special?: string }) => (d.special === 'snake' ? SNAKE_MODS : 1);
 const axle = (z: number, half: number, steer: number, drive = true): WheelDef[] => [{ x: half, z, steer, drive }, { x: -half, z, steer, drive }];
 
 export const VEHICLES: VehicleDef[] = [
@@ -83,9 +86,9 @@ export const VEHICLES: VehicleDef[] = [
     mass: 52000, power: 1900, top: 18, len: 10.5, wid: 5.6, hgt: 3.2, ride: 0.6, wheelR: 1.45, wheelW: 1.0,
     wheels: [...axle(3.15, 2.2, 1), ...axle(-2.6, 2.2, 0)],
     susp: { rest: 1.25, travel: 0.6, stiff: 26, damp: 3.4 }, grip: 1.49, steerMax: 0.5, color: '#f2c200', color2: '#2a2a2a', plowable: true, heavy: true, intake: 4.5 },
-  { id: 'snake', name: 'THE SNAKE 12x12', cls: 'Secret', body: 'snake', special: 'snake', price: 0, blurb: 'Three articulated 4x4 modules joined by hydraulic hinges. Assembled from four barn finds.',
-    mass: 4200, power: 520, top: 37, len: 4.6, wid: 2.4, hgt: 2.0, ride: 0.38, wheelR: 0.6, wheelW: 0.42,
-    wheels: [...axle(1.35, 1.05, 1), ...axle(-1.25, 1.05, 0)],
+  { id: 'snake', name: 'THE SNAKE 12x12', cls: 'Secret', body: 'snake', special: 'snake', price: 0, blurb: 'Six single-axle segments on five hydraulic articulation joints: twelve driven wheels that slither over anything. Assembled from four barn finds.',
+    mass: 2100, power: 520, top: 37, len: 2.25, wid: 2.3, hgt: 1.9, ride: 0.38, wheelR: 0.58, wheelW: 0.42,
+    wheels: [...axle(0, 1.0, 1)],
     susp: { rest: 0.7, travel: 0.55, stiff: 27, damp: 2.8 }, grip: 1.49, steerMax: 0.5, color: '#10261b', color2: '#1d3a28', plowable: true, heavy: true, intake: 2.2 },
 ];
 export const VEH = Object.fromEntries(VEHICLES.map((v) => [v.id, v])) as Record<string, VehicleDef>;

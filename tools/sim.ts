@@ -14,6 +14,7 @@ const [roadId = 'hub-east', ...rest] = process.argv.slice(2);
 const ids = rest.length ? rest : VEHICLES.map((v) => v.id);
 const road = w.roads.find((r) => r.id === roadId)!;
 const phys = new Physics(w.height);
+Vehicle.groundAt = (x, z) => sampleH(w.height, x, z);
 for (const id of ids) {
   const d = VEH[id], st = stats(d, STOCK);
   const [x, z] = road.pts[2], [x2, z2] = road.pts[6];

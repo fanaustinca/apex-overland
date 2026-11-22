@@ -18,6 +18,7 @@ import { Props, GARAGES, SPEED_TRAPS, JUMP_TRAPS } from '../world/props';
 import { CABINS } from '../world/roads';
 import { Particles, P } from '../fx/particles';
 import { VehicleEntity } from './entity';
+import { Vehicle } from '../vehicles/vehicle';
 import { Input } from './input';
 import { Driver } from './ai';
 import { buildRaces, type RaceDef } from './races';
@@ -125,6 +126,7 @@ export class Game {
     for (const p of this.world.garages ?? []) Object.assign(GARAGES.find((g) => g.id === p.id)!, p);   // auto-sited in the generator
     progress('Building physics', 0.4);
     this.phys = new Physics(this.world.height);
+    Vehicle.groundAt = (x, z) => this.ground(x, z);
     this.terrain = new Terrain(this.world, this.gfx.renderer);
     progress('Loading photo-scanned terrain materials', 0.45);
     await this.terrain.loadLayers((f) => progress('Loading photo-scanned terrain materials', 0.45 + f * 0.2));
@@ -549,7 +551,7 @@ export class Game {
     }
     const pos = vis.root.position, q = vis.root.quaternion;
     const fwd = new THREE.Vector3(0, 0, 1).applyQuaternion(q); fwd.y *= 0.3; fwd.normalize();
-    const size = Math.max(4, e.def.len * (e.def.body === 'snake' ? 2.2 : 1), e.def.hgt * 2.2);
+    const size = Math.max(4, e.def.body === 'snake' ? 9 : e.def.len, e.def.hgt * 2.2);
     if (this.mode === 'garage') {
       this.camYaw += inp.mouse.dx * 0.005 + dt * (inp.mouse.down ? 0 : 0.05); this.camPitch = Math.max(0.02, Math.min(0.8, this.camPitch + inp.mouse.dy * 0.003));
       this.camDist = Math.max(0.6, Math.min(2.2, this.camDist + inp.mouse.wheel * 0.08));
@@ -638,7 +640,7 @@ export async function boot() {
       let x = 0;
       list.forEach((d) => {
         const u = { ...STOCK, ...upg } as Upgrades; const st = stats(d, u);
-        (d.body === 'snake' ? [0, 1, 2] : [0]).forEach((m) => {
+        Array.from({ length: d.body === 'snake' ? 6 : 1 }, (_, k) => k).forEach((m) => {
           const v = buildVisual(d, u, st, m);
           const z = 40 - m * (d.len + 1.3), wx = x + d.wid / 2;
           v.root.position.set(wx, game.ground(wx, z) + st.wheelR, z);

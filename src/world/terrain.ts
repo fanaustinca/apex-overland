@@ -270,11 +270,20 @@ vec4 rd = texture(tRoad, wuv);
 float road = smoothstep(0.25, 0.75, rd.r + (micro.z - 0.5) * 0.35);
 int kind = int(rd.g * 255.0 / 36.0 + 0.5);
 // road layer: 1 asphalt, 2 dirt, 3 gravel, 4 snow, 5 trail, 6 haul
-int rl = kind == 1 ? 11 : kind == 3 || kind == 6 ? 7 : kind == 4 ? 5 : 9;
+int rl = kind == 1 ? 11 : kind == 3 || kind == 6 || kind == 4 ? 7 : 9;
 float icy = kind == 4 ? road : 0.0;
 for (int i = 0; i < 12; i++) W[i] *= (1.0 - road);
 W[rl] += road;
 if (kind == 2 || kind == 5) { float m = road * smoothstep(0.45, 0.7, macro.y) * 0.8; W[9] -= m; W[8] += m; }
+// snow roads: compacted snow churned with gravel (clearly not virgin snow), flanked by bright plough berms
+float snowRoad = kind == 4 ? road : 0.0;
+if (kind == 4) {
+  float packed = road * (0.5 + 0.22 * smoothstep(0.3, 0.7, micro.y));
+  W[7] -= packed; W[5] += packed;
+  float berm = smoothstep(0.04, 0.3, rd.r) * (1.0 - smoothstep(0.35, 0.7, rd.r));
+  for (int i = 0; i < 12; i++) W[i] *= (1.0 - berm * 0.85);
+  W[5] += berm * 0.85;
+}
 // steep faces always show rock, whatever the splat says
 float slopeY = Nw.y;
 float rockiness = smoothstep(0.82, 0.62, slopeY) * (1.0 - road);
@@ -347,13 +356,14 @@ float alpine = smoothstep(90.0, 200.0, vTW.y) * W[6];
   // macro colour variation keeps kilometre-scale ground from looking uniform
   albedo *= 0.86 + 0.28 * macro.x;
   albedo *= mix(vec3(1.0), vec3(1.45, 1.32, 1.18), road * float(kind == 2 || kind == 5));
+  albedo *= mix(vec3(1.0), vec3(0.74, 0.77, 0.84), snowRoad * 0.85);   // dirty, compacted snow: greyer than the drifts
   albedo = mix(albedo, albedo * vec3(1.05, 0.98, 0.92), macro.z - 0.5);
   vec2 dn = (nrA.xy * 2.0 - 1.0) * detailFade * 1.15;
   vec3 T = normalize(vec3(1.0, 0.0, 0.0) - Nw * Nw.x);
   vec3 B = normalize(cross(T, Nw));
   tNw = normalize(Nw + T * dn.x - B * dn.y);
   tRough = mix(0.97, nrA.z, detailFade);
-  tRough = mix(tRough, 0.22, icy * 0.85);
+  tRough = mix(tRough, 0.3, icy * 0.6);
   tAO = mix(1.0, nrA.w, 0.85);
   vec4 bk = texture(tBake, wuv);
   tSun = bk.r;

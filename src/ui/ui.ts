@@ -1,7 +1,7 @@
 // All DOM UI: title, HUD + GPS minimap, race overlay, fast-travel map, garage, settings, pause, results, toasts.
 import * as THREE from 'three';
 import type { Game } from '../game/game';
-import { VEHICLES, VEH, UPGRADE_INFO, COMPOUNDS, stats, type UpgradeKey, type Compound, type VehicleDef } from '../vehicles/defs';
+import { VEHICLES, VEH, UPGRADE_INFO, COMPOUNDS, stats, modsOf, type UpgradeKey, type Compound, type VehicleDef } from '../vehicles/defs';
 import { upgradesOf, saveProfile } from '../game/save';
 import { PRESETS, type GfxSettings } from '../render/gfx';
 import { GARAGES, SPEED_TRAPS } from '../world/props';
@@ -339,7 +339,7 @@ export class UI {
       const bar = (label: string, v: number) => `<div class="stat"><span>${label}</span><i><b style="width:${Math.max(4, Math.min(100, v * 100)).toFixed(0)}%"></b></i></div>`;
       const offroad = (st.rideLift * 2 + st.travel + cur.wheelR) / 2.4;
       const statBlock = bar('Top speed', st.top / 52) + bar('Acceleration', Math.min(1, st.power / cur.mass * 4.5)) + bar('Grip', st.grip / 2.0) + bar('Offroad', offroad) + bar('Durability', (1 / st.damageMul) / 2.6 + cur.mass / 120000) + bar('Weight', Math.min(1, Math.log10(cur.mass) / 4.8));
-      p.innerHTML = `<div class="gtop"><div><div class="gname">${g.props.garagePads.length ? (GARAGES.find((x) => x.id === g.nearestGarage().id)?.name ?? 'Garage') : 'Garage'}</div><h2>${cur.name}</h2><div class="gcls">${cur.cls} · ${(cur.mass * (cur.special === 'snake' ? 3 : 1) / 1000).toFixed(1)} t · ${cur.wheels.length * (cur.special === 'snake' ? 3 : 1)} wheels</div></div><div class="coins big">⛁ ${prof.coins.toLocaleString()}</div></div>
+      p.innerHTML = `<div class="gtop"><div><div class="gname">${g.props.garagePads.length ? (GARAGES.find((x) => x.id === g.nearestGarage().id)?.name ?? 'Garage') : 'Garage'}</div><h2>${cur.name}</h2><div class="gcls">${cur.cls} · ${(cur.mass * modsOf(cur) / 1000).toFixed(1)} t · ${cur.wheels.length * modsOf(cur)} wheels</div></div><div class="coins big">⛁ ${prof.coins.toLocaleString()}</div></div>
         <div class="tabs">${(['upgrades', 'vehicles', 'paint'] as const).map((t) => `<button data-tab="${t}" class="${tab === t ? 'on' : ''}">${t.toUpperCase()}</button>`).join('')}</div>
         <div class="gbody">${tab === 'vehicles' ? this.vehicleList() : tab === 'paint' ? this.paintList(up.paint ?? cur.color) : this.upgradeList(cur, up)}</div>
         <div class="stats">${statBlock}</div>

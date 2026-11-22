@@ -5,7 +5,9 @@ import { sampleH } from '../src/world/gen';
 import { CTRL, HALF } from '../src/world/layout';
 import { Physics, initRapier, RAPIER, G, groups } from '../src/physics/physics';
 import { VEH, STOCK, stats, type Upgrades } from '../src/vehicles/defs';
-import { Vehicle } from '../src/vehicles/vehicle';
+import { Vehicle, setSnakeFollow, setSnakePitch } from '../src/vehicles/vehicle';
+if (process.env.SNAKE_PITCH) setSnakePitch(+process.env.SNAKE_PITCH);
+if (process.env.SNAKE_FOLLOW) setSnakeFollow(+process.env.SNAKE_FOLLOW);
 import { Driver } from '../src/game/ai';
 import { buildRaces } from '../src/game/races';
 await initRapier();
@@ -13,6 +15,7 @@ const w = generateWorld();
 const cell = (x: number, z: number) => Math.max(0, Math.min(CTRL - 1, Math.floor((z + HALF) / 4))) * CTRL + Math.max(0, Math.min(CTRL - 1, Math.floor((x + HALF) / 4)));
 const env = { surfaceAt: (x: number, z: number) => w.surface[cell(x, z)], waterAt: (x: number, z: number) => w.water[cell(x, z)] };
 const phys = new Physics(w.height);
+Vehicle.groundAt = (x, z) => sampleH(w.height, x, z);
 const fixed = phys.world.createRigidBody(RAPIER.RigidBodyDesc.fixed());
 for (const b of w.bridges) {
   const pts = b.pts ?? [b.a, b.b];
