@@ -21,7 +21,7 @@ export interface VehicleDef {
 }
 
 /** The Snake: six single-axle segments on five articulation joints (hinge GAP metres apart, module ends to hinge = GAP/2). */
-export const SNAKE_MODS = 6, SNAKE_GAP = 0.56;
+export const SNAKE_MODS = 6, SNAKE_GAP = 0.48;
 export const modsOf = (d: { special?: string }) => (d.special === 'snake' ? SNAKE_MODS : 1);
 const axle = (z: number, half: number, steer: number, drive = true): WheelDef[] => [{ x: half, z, steer, drive }, { x: -half, z, steer, drive }];
 
@@ -87,7 +87,7 @@ export const VEHICLES: VehicleDef[] = [
     wheels: [...axle(3.15, 2.2, 1), ...axle(-2.6, 2.2, 0)],
     susp: { rest: 1.25, travel: 0.6, stiff: 26, damp: 3.4 }, grip: 1.49, steerMax: 0.5, color: '#f2c200', color2: '#2a2a2a', plowable: true, heavy: true, intake: 4.5 },
   { id: 'snake', name: 'THE SNAKE 12x12', cls: 'Secret', body: 'snake', special: 'snake', price: 0, blurb: 'Six single-axle segments on five hydraulic articulation joints: twelve driven wheels that slither over anything. Assembled from four barn finds.',
-    mass: 2100, power: 520, top: 37, len: 2.25, wid: 2.3, hgt: 1.9, ride: 0.38, wheelR: 0.58, wheelW: 0.42,
+    mass: 2100, power: 520, top: 37, len: 1.95, wid: 2.3, hgt: 1.9, ride: 0.38, wheelR: 0.56, wheelW: 0.42,
     wheels: [...axle(0, 1.0, 1)],
     susp: { rest: 0.7, travel: 0.55, stiff: 27, damp: 2.8 }, grip: 1.49, steerMax: 0.5, color: '#10261b', color2: '#1d3a28', plowable: true, heavy: true, intake: 2.2 },
 ];
