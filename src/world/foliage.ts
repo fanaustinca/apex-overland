@@ -3,7 +3,7 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
-import { HALF, CTRL, N, WORLD, biomeWeights, HUB, PITS, LAKES } from './layout';
+import { HALF, CTRL, N, WORLD, biomeWeights, HUB, PITS, LAKES, LANDMARKS } from './layout';
 import { Simplex, hash2, smoothstep } from '../core/noise';
 import { sampleH, SEED } from './gen';
 import type { World } from './finish';
@@ -21,6 +21,9 @@ const clearZones = (): [number, number, number][] => [
   ...GARAGES.map((g) => [g.x, g.z, g.main ? 60 : 40] as [number, number, number]),
   ...CABINS.map((c) => [c.x, c.z, 26] as [number, number, number]),
   [1500, 300, 75], [-900, 230, 70], [-910, -380, 30],
+  ...LANDMARKS.map((l) => [l.x, l.z, l.r + (l.id === 'sinkhole' ? 8 : l.id === 'crater' ? 30 : 0)] as [number, number, number]),
+  // the sinkhole's ramp cutting
+  ...LANDMARKS.filter((l) => l.id === 'sinkhole').flatMap((l) => Array.from({ length: 10 }, (_, k) => [l.x + Math.sin(l.dir) * (l.r + k * 14), l.z + Math.cos(l.dir) * (l.r + k * 14), 14] as [number, number, number])),
 ];
 
 interface Batch { near: THREE.InstancedMesh[]; far: THREE.InstancedMesh[]; geo: TreeGeo }
@@ -282,7 +285,7 @@ export class Foliage {
     }
     for (const t of want) if (!this.colliders.has(t)) {
       const rad = this.radiusOf(t), h = 4;
-      const c = this.phys.world.createCollider(RAPIER.ColliderDesc.cylinder(h, rad).setTranslation(this.tx[t], this.ty[t] + h, this.tz[t]).setCollisionGroups(groups(G.TREE, G.VEHICLE | G.LOG)).setFriction(0.6), this.fixedBody);
+      const c = this.phys.world.createCollider(RAPIER.ColliderDesc.cylinder(h, rad).setTranslation(this.tx[t], this.ty[t] + h, this.tz[t]).setCollisionGroups(groups(G.TREE, G.VEHICLE | G.SNAKE | G.LOG)).setFriction(0.6), this.fixedBody);
       this.colliders.set(t, c);
     }
     for (const [t, c] of this.colliders) {
@@ -331,7 +334,7 @@ export class Foliage {
     const rad = Math.max(0.3, this.radiusOf(t) * 1.6);
     const mass = (k === TK.Saguaro ? 300 : 900) * sc * sc * (H / 14);
     this.phys.world.createCollider(RAPIER.ColliderDesc.capsule(Math.max(0.2, half - rad), rad).setMass(mass).setFriction(0.9).setRestitution(0.05)
-      .setCollisionGroups(groups(G.LOG, G.TERRAIN | G.VEHICLE | G.LOG | G.PROP | G.TREE)), body);
+      .setCollisionGroups(groups(G.LOG, G.TERRAIN | G.VEHICLE | G.SNAKE | G.LOG | G.PROP | G.TREE)), body);
     // branch stubs in the crown: felled trees rest on their branches instead of rolling like a pipe
     if (k !== TK.Saguaro) {
       const reach = Math.max(1.2, H * 0.13);

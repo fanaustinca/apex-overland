@@ -28,13 +28,16 @@ The outer ring holds the **Baja run** (desert rally road with tabletop jumps) an
 
 Roads are laid out the way real ones are: a grade-aware pathfinder (A* over position + heading, with a minimum hairpin radius) routes every road between its waypoints along the contours, round mesas and up mountains in switchbacks, so roads hug the terrain and only shave a few metres off it. Shallow, irregular earthworks blend them in; junctions meet at the same height; river crossings are proper bridges; outpost garages site themselves beside their road on level ground. `npx tsx tools/audit.ts` checks all of it.
 
+**Landmarks** worth a detour (a gold star on the map once found, with a cash reward for each discovery):
+**Impact Crater** (a 350 m meteor crater with a glowing meteorite), **Aircraft Boneyard** (a crashed cargo plane whose broken wing is a ramp, plus a row of retired airliners), **Hoodoo Garden** (sandstone spires and a natural arch you can drive through), **Stunt Park** (kickers, tabletops, a dirt bowl, quarter pipes and a container gap) and **The Sinkhole** (a 35 m cenote with a turquoise pool and one ramp down).
+
 No invisible walls: waypoints only guide the GPS — any line to the finish counts, so cut through forests, dunes and cliffs (the frozen-lake slalom and the MX track make you take every gate).
 
 | ![The Snake](docs/snake-front.jpg) | ![The Snake, side](docs/snake-side.jpg) |
 |---|---|
 
-## Vehicles (17)
-Dirt Bike (lean physics + bunny-hop) · Dune Buggy · Rally Sedan · Offroad Limo · 4x4 Rock Crawler · Expedition SUV · Pickup · 6x6 · Dakar Rally Truck · Semi · 8x8 (four-wheel steer) · Monster Truck · School Bus · Battle Tank (tracks, neutral pivot steering) · Mining Dump Truck · and the secret **THE SNAKE 12x12** — six single-axle segments on five short hydraulic articulation joints (springy pitch, firm roll, free yaw) whose axles steer to follow the segment ahead.
+## Vehicles (18)
+Dirt Bike (lean physics + bunny-hop) · Dune Buggy · Rally Sedan · Offroad Limo · 4x4 Rock Crawler · Expedition SUV · Pickup · 6x6 · Dakar Rally Truck · Semi · 8x8 (four-wheel steer) · Monster Truck · **6x6 Monster Truck** (same pace as the Monster, but anti-roll bars, yaw stability, more grip and hill-climbing torque keep it planted) · School Bus · Battle Tank (tracks, neutral pivot steering at ~60°/s) · Mining Dump Truck · and the secret **THE SNAKE 12x12** — six single-axle segments on five short hydraulic articulation joints (springy pitch, firm roll, free yaw) whose axles steer to follow the segment ahead. Its segments never collide with each other, so it can fold tight without snagging on itself.
 
 Every vehicle is procedurally modelled (extruded body profiles with wheel-arch cut-outs, clear-coat paint with liveries, tinted glass, lathe-turned tyres with real tread lugs, live suspension links) and accumulates mud, dust and snow from the surfaces it drives on.
 

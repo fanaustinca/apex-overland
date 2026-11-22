@@ -70,6 +70,18 @@ export const GARAGES = [
   { id: 'canyon', name: 'Canyon Mouth Garage', x: -1440, z: 820, yaw: Math.PI / 2, main: false },
 ];
 
+/** Landmarks: set-piece terrain (and props) out in the open country, worth a detour. Discovering one pays out. */
+export type LandmarkKind = 'crater' | 'boneyard' | 'hoodoos' | 'stunt' | 'sinkhole';
+export interface Landmark { id: LandmarkKind; name: string; x: number; z: number; r: number; reward: number; blurb: string; dir: number }
+export const LANDMARKS: Landmark[] = [
+  // dir: the bearing (radians, atan2(dx, dz)) of the way in: a trail, ramp or notch faces that way
+  { id: 'crater', name: 'Impact Crater', x: -1560, z: -830, r: 175, reward: 1500, dir: 0.9, blurb: 'A 350 m meteor crater with a glowing heart. Drop in, climb out.' },
+  { id: 'boneyard', name: 'Aircraft Boneyard', x: -1930, z: 1240, r: 120, reward: 1200, dir: 0, blurb: 'A crashed cargo plane and its scrapped cousins. The broken wing is a ramp.' },
+  { id: 'hoodoos', name: 'Hoodoo Garden', x: -330, z: 1360, r: 140, reward: 1200, dir: 0, blurb: 'Rock spires, balanced caprocks and a natural arch you can drive through.' },
+  { id: 'stunt', name: 'Stunt Park', x: 470, z: -380, r: 115, reward: 1000, dir: 0, blurb: 'Kickers, tabletops, a bowl and a container gap. Send it.' },
+  { id: 'sinkhole', name: 'The Sinkhole', x: 1910, z: -1640, r: 72, reward: 1800, dir: -0.45, blurb: 'A 35 m deep cenote with a turquoise pool. One ramp down, one way out.' },
+];
+
 const cz = (x: number) => canyonZ(x);
 /** Off-road racing lines: mesas are eroded out of a corridor along these so every race is drivable. */
 export const OFFROAD: Record<string, P2[][]> = {

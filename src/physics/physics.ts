@@ -4,7 +4,9 @@ import { N, V, CELL, WORLD } from '../world/layout';
 
 export { RAPIER };
 // collision groups (membership << 16 | filter)
-export const G = { TERRAIN: 1, VEHICLE: 2, TREE: 4, LOG: 8, PROP: 16, WHEELRAY: 32 };
+export const G = { TERRAIN: 1, VEHICLE: 2, TREE: 4, LOG: 8, PROP: 16, WHEELRAY: 32, SNAKE: 64 };
+/** everything a vehicle body can hit (Snake segments are their own group so the chain never collides with itself) */
+export const VEH_HITS = 2 | 64;
 export const groups = (member: number, filter: number) => ((member & 0xffff) << 16) | (filter & 0xffff);
 
 let inited = false;

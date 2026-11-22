@@ -9,6 +9,7 @@ import { CABINS } from './roads';
 import { PITS, CANYON_FLOOR, type P2 } from './layout';
 import { RAPIER, G, groups, type Physics } from '../physics/physics';
 import { assetUrl } from '../core/assets';
+import { buildLandmarks } from './landmarks';
 
 import { GARAGES } from './layout';
 export { GARAGES };
@@ -42,7 +43,7 @@ export class Props {
   chimneys: THREE.Vector3[] = [];
   garagePads: { id: string; pos: THREE.Vector3; yaw: number }[] = [];
   cabinPos: Record<string, THREE.Vector3> = {};
-  private mats!: Record<string, THREE.Material>;
+  mats!: Record<string, THREE.Material>;
   constructor(private w: World, private phys: Physics) {
     this.body = phys.world.createRigidBody(RAPIER.RigidBodyDesc.fixed());
   }
@@ -67,6 +68,7 @@ export class Props {
       gravel: new THREE.MeshStandardMaterial({ color: 0x9a8e80, roughness: 1 }),
     };
     this.bridges(); this.garages(); this.quarry(); this.loggingCamp(); this.cabins(); this.signposts(); this.traps();
+    buildLandmarks(this, this.mats);
     this.mergeStatic();
     this.group.traverse((o) => { const m = o as THREE.Mesh; if (m.isMesh) { m.castShadow = true; m.receiveShadow = true; } });
   }
@@ -100,11 +102,11 @@ export class Props {
   }
 
   // ---- helpers ----
-  private add(g: THREE.BufferGeometry, m: THREE.Material, x: number, y: number, z: number, yaw = 0, parent: THREE.Object3D = this.group) {
+  add(g: THREE.BufferGeometry, m: THREE.Material, x: number, y: number, z: number, yaw = 0, parent: THREE.Object3D = this.group) {
     const o = new THREE.Mesh(g, m); o.position.set(x, y, z); o.rotation.y = yaw; parent.add(o); return o;
   }
   /** Box mesh + matching static collider (world space). */
-  private solid(w: number, h: number, d: number, m: THREE.Material, x: number, y: number, z: number, yaw = 0, tile = 2, pitch = 0, parent: THREE.Object3D = this.group, collide = true) {
+  solid(w: number, h: number, d: number, m: THREE.Material, x: number, y: number, z: number, yaw = 0, tile = 2, pitch = 0, parent: THREE.Object3D = this.group, collide = true) {
     const o = this.add(boxUV(w, h, d, tile), m, x, y, z, 0, parent);
     o.rotation.set(pitch, yaw, 0, 'YXZ');
     if (collide) {
@@ -115,7 +117,7 @@ export class Props {
     return o;
   }
   /** Static collider matching a mesh's world placement (cylinder or box from its geometry parameters). */
-  private collide(o: THREE.Mesh) {
+  collide(o: THREE.Mesh) {
     o.updateWorldMatrix(true, false);
     const q = new THREE.Quaternion(), p = new THREE.Vector3(), sc = new THREE.Vector3(); o.matrixWorld.decompose(p, q, sc);
     const g = o.geometry as THREE.BufferGeometry & { parameters?: Record<string, number> }, pr = g.parameters ?? {};
@@ -126,7 +128,7 @@ export class Props {
     this.phys.world.createCollider(d.setTranslation(p.x, p.y, p.z).setRotation(q).setFriction(0.8).setCollisionGroups(groups(G.PROP, 0xffff)), this.body);
     return o;
   }
-  private cylinder(r: number, h: number, m: THREE.Material, x: number, y: number, z: number, collide = true, seg = 16, parent: THREE.Object3D = this.group) {
+  cylinder(r: number, h: number, m: THREE.Material, x: number, y: number, z: number, collide = true, seg = 16, parent: THREE.Object3D = this.group) {
     const o = this.add(new THREE.CylinderGeometry(r, r, h, seg), m, x, y, z, 0, parent);
     if (collide) this.phys.world.createCollider(RAPIER.ColliderDesc.cylinder(h / 2, r).setTranslation(x, y, z).setCollisionGroups(groups(G.PROP, 0xffff)), this.body);
     return o;

@@ -1,6 +1,6 @@
 // Road network: authored control points, splined, graded (max slope) and carved into the heightmap.
-import { canyonZ, BRIDGES_X, NARROWS, PITS, HALF, CELL, N, V, CTRL, CANYON_X0, CANYON_X1, GARAGES, LAKES, type P2 } from './layout';
-import { spline, resample, sampleH, carveAlong, distToPolylineFast, type WorldData, APEX } from './gen';
+import { canyonZ, BRIDGES_X, NARROWS, PITS, HALF, CELL, N, V, CTRL, CANYON_X0, CANYON_X1, GARAGES, LAKES, LANDMARKS, type P2 } from './layout';
+import { spline, resample, sampleH, carveAlong, distToPolylineFast, type WorldData, APEX, SINK } from './gen';
 import { clamp, smoothstep, Simplex } from '../core/noise';
 
 export type RoadKind = 'asphalt' | 'dirt' | 'gravel' | 'snow' | 'trail' | 'haul';
@@ -61,6 +61,8 @@ export const CABINS = [
 /** Summit Station junction: on the south shoulder of Mount Apex, where the three mountain roads meet. */
 export const SUMMIT: P2 = [-200, -1150];
 const MX = hairpins(-1650, -2000, -1650, 500, 135, 4);
+/** The spot `out` metres beyond a landmark's edge along its way-in bearing. */
+function lmGate(id: string, out: number): P2 { const l = LANDMARKS.find((q) => q.id === id)!; return [l.x + Math.sin(l.dir) * (l.r + out), l.z + Math.cos(l.dir) * (l.r + out)]; }
 export const ROAD_DEFS: RoadDef[] = [
   // hub spokes
   { id: 'hub-south', kind: 'asphalt', width: 11, grade: 0.09, ctrl: [[0, 40], [30, 300], [-30, 560], [60, 820], aN(BRIDGES_X[1]), bN(BRIDGES_X[1])] },
@@ -101,6 +103,11 @@ export const ROAD_DEFS: RoadDef[] = [
   { id: 'peak-descent', kind: 'snow', width: 8, grade: 0.16, ctrl: [SUMMIT, [-330, -1160], [-520, -1140], [-694, -950]] },
   { id: 'glacier-ridge', kind: 'snow', width: 8, grade: 0.16, ctrl: [SUMMIT, [250, -1220], [650, -1330], [1000, -1300], [870, -915]] },
   { id: 'alpine-pass', kind: 'snow', width: 9, grade: 0.13, ctrl: [[-694, -950], [-880, -1060], [-1100, -1120], [-1350, -1210], [-1600, -1300]] },
+  // landmark trails (each starts on a waypoint of an existing road, so it joins it wherever that road now runs)
+  { id: 'lm-crater', kind: 'trail', width: 6, grade: 0.15, ctrl: [[-1350, -520], lmGate('crater', 25)] },
+  { id: 'lm-boneyard', kind: 'trail', width: 6, grade: 0.15, ctrl: [[-1960, 1640], lmGate('boneyard', 15)] },
+  { id: 'lm-stunt', kind: 'dirt', width: 8, grade: 0.14, ctrl: [[300, -40], lmGate('stunt', 8)] },
+  { id: 'lm-sinkhole', kind: 'trail', width: 6, grade: 0.15, ctrl: [[1760, -1330], lmGate('sinkhole', SINK.rampRun)] },
   ...CABINS.map((c) => ({ id: 'ruts-' + c.id, kind: 'trail' as RoadKind, width: 3.4, grade: 0.3, bank: 4, ctrl: [c.from, ...c.via, [c.x + Math.sin(c.yaw) * 13, c.z + Math.cos(c.yaw) * 13] as P2] })),
 ];
 
@@ -130,6 +137,7 @@ class Router {
       if (x > CANYON_X0 && x < CANYON_X1 && Math.abs(z - cz(x)) < 90) m = 60;               // only bridges cross the canyon
       for (const p of PITS) if (Math.hypot(x - p.x, z - p.z) < p.r - 10) m = Math.max(m, 25);
       for (const l of LAKES) if (Math.hypot(x - l.x, z - l.z) < l.r + 10) m = Math.max(m, 25);
+      for (const l of LANDMARKS) if (Math.hypot(x - l.x, z - l.z) < l.r * 0.95) m = Math.max(m, 25);
       if (Math.max(Math.abs(x), Math.abs(z)) > HALF - 300) m = Math.max(m, 30);
       for (const g of GARAGES) { if (!g.main) continue; const px = g.x + Math.sin(g.yaw) * (g.main ? 10 : 7), pz = g.z + Math.cos(g.yaw) * (g.main ? 10 : 7); if (Math.hypot(x - px, z - pz) < (g.main ? 42 : 26) + 10) m = Math.max(m, 40); }
       this.mult[k] = m;

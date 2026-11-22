@@ -1,6 +1,6 @@
 // Procedural world generation. Pure data (no DOM / three) so it runs in a Web Worker and in node tools.
 import { Simplex, smoothstep, clamp, lerp } from '../core/noise';
-import { WORLD, OFFROAD, PASSES, LAKES, type River, NARROWS, N, V, CELL, HALF, CTRL, RIVERS, PITS, HUB, CANYON_X0, CANYON_X1, CANYON_FLOOR, CANYON_WATER, canyonZ, biomeWeights, hubFactor, type P2 } from './layout';
+import { WORLD, OFFROAD, PASSES, LAKES, type River, NARROWS, N, V, CELL, HALF, CTRL, RIVERS, PITS, HUB, CANYON_X0, CANYON_X1, CANYON_FLOOR, CANYON_WATER, canyonZ, biomeWeights, hubFactor, LANDMARKS, type Landmark, type P2 } from './layout';
 
 export const SEED = 1337;
 
@@ -107,14 +107,7 @@ export function baseRows(j0: number, j1: number): Float32Array {
     const z = -HALF + j * CELL;
     for (let i = 0; i < V; i++) {
       const x = -HALF + i * CELL;
-      const warp = sx.fbm(x / 1100 + 40, z / 1100 - 40, 3);
-      biomeWeights(x, z, warp, w);
-      let h = 0;
-      if (w[0] > 0.002) h += w[0] * desertH(x, z);
-      if (w[1] > 0.002) h += w[1] * forestH(x, z);
-      if (w[2] > 0.002) h += w[2] * snowH(x, z);
-      if (w[3] > 0.002) h += w[3] * quarryH(x, z);
-      h /= (w[0] > 0.002 ? w[0] : 0) + (w[1] > 0.002 ? w[1] : 0) + (w[2] > 0.002 ? w[2] : 0) + (w[3] > 0.002 ? w[3] : 0);
+      let h = biomeH(x, z, w);
       // hub valley
       const hf = hubFactor(x, z);
       if (hf > 0) h = lerp(h, HUB.h + 1.2 * s3.fbm(x / 90, z / 90, 2), hf);
@@ -154,6 +147,7 @@ export function baseRows(j0: number, j1: number): Float32Array {
           h = Math.min(h, quarryH(p.x + dx * 0.0, p.z) - depth + 0.4 * s3.fbm(x / 20, z / 20, 2));
         }
       }
+      for (const l of LANDMARKS) { const dx = x - l.x, dz = z - l.z; if (dx * dx + dz * dz < (l.r + 220) ** 2) h = landmarkH(l, x, z, h); }
       // world border mountains
       const e = smoothstep(HALF - 420, HALF, Math.max(Math.abs(x), Math.abs(z)));
       if (e > 0) h += e * e * (150 + 90 * s2.fbm(x / 420, z / 420, 4)) + e * 25 * s3.ridged(x / 160, z / 160, 3);
@@ -161,6 +155,80 @@ export function baseRows(j0: number, j1: number): Float32Array {
     }
   }
   return height;
+}
+
+/** Biome-blended noise terrain (before the hand-placed features). */
+function biomeH(x: number, z: number, w: number[] | Float32Array = [0, 0, 0, 0]): number {
+  const warp = sx.fbm(x / 1100 + 40, z / 1100 - 40, 3);
+  biomeWeights(x, z, warp, w);
+  let h = 0;
+  if (w[0] > 0.002) h += w[0] * desertH(x, z);
+  if (w[1] > 0.002) h += w[1] * forestH(x, z);
+  if (w[2] > 0.002) h += w[2] * snowH(x, z);
+  if (w[3] > 0.002) h += w[3] * quarryH(x, z);
+  return h / ((w[0] > 0.002 ? w[0] : 0) + (w[1] > 0.002 ? w[1] : 0) + (w[2] > 0.002 ? w[2] : 0) + (w[3] > 0.002 ? w[3] : 0));
+}
+const lmBase = new Map<string, number>();
+/** Ground level a landmark is built at (the smoothed natural terrain around its centre). */
+export function landmarkLevel(l: Landmark): number {
+  let v = lmBase.get(l.id);
+  if (v === undefined) { v = 0; let n = 0; for (let a = 0; a < 16; a++) for (const f of [0, 0.4, 0.8]) { v += biomeH(l.x + Math.cos(a * 0.39) * l.r * f, l.z + Math.sin(a * 0.39) * l.r * f); n++; } v /= n; lmBase.set(l.id, v); }
+  return v;
+}
+/** Sinkhole geometry shared with the props and pond code. */
+export const SINK = { floorR: 46, depth: 36, poolR: 27, poolDepth: 4.5, rampW: 6, rampRun: 125 };
+/** Landmark terrain: crater bowl, flattened boneyard with a crash gouge, sunken badlands, stunt-park earthworks, cenote. */
+function landmarkH(l: Landmark, x: number, z: number, h: number): number {
+  const dx = x - l.x, dz = z - l.z, d = Math.hypot(dx, dz), R = l.r, hc = landmarkLevel(l);
+  const ux = Math.sin(l.dir), uz = Math.cos(l.dir);
+  switch (l.id) {
+    case 'crater': {
+      // bowl with a raised, ragged rim, an ejecta apron and a central uplift. Walls top out near 28 degrees: steep, drivable.
+      const ang = Math.atan2(dz, dx), rag = 0.75 + 0.5 * (0.5 + 0.5 * s2.n(Math.cos(ang) * 2.2 + 31, Math.sin(ang) * 2.2));
+      const rimH = 15 * rag, D = 26, xr = d / R;
+      const base = lerp(h, hc + 0.6 * (h - hc), 1 - smoothstep(R, R + 200, d));
+      if (xr < 1) return base + rimH * smoothstep(0.55, 1, xr) - D * (1 - smoothstep(0.1, 0.95, xr)) + 9 * Math.exp(-((xr / 0.14) ** 2)) * (0.9 + 0.2 * s3.fbm(x / 30, z / 30, 2)) + 0.8 * s3.fbm(x / 14, z / 14, 2);
+      return base + rimH * Math.exp(-(((d - R) / 70) ** 2));
+    }
+    case 'boneyard': {
+      // a flat dry lake bed, with the gouge the cargo plane ploughed on its way in (along -u, ending at the wreck)
+      let t = lerp(h, hc + 0.5 * s3.fbm(x / 40, z / 40, 2), 1 - smoothstep(R * 0.8, R + 140, d));
+      const s = -(dx * ux + dz * uz), lat = Math.abs(dx * uz - dz * ux);
+      if (s > -10 && s < 150) { const fade = smoothstep(-10, 10, s) * (1 - smoothstep(120, 150, s)); t += fade * (-1.3 * (1 - smoothstep(2.5, 5, lat)) + 0.9 * Math.exp(-(((lat - 6.5) / 1.6) ** 2))); }
+      return t;
+    }
+    case 'hoodoos': {
+      // sunken, terraced badlands: the spires (props) stand on a floor 5 m below the surrounding sand
+      const f = 1 - smoothstep(R * 0.75, R + 60, d);
+      return lerp(h, hc - 5 + 1.4 * terrace(0.5 + 0.5 * s2.fbm(x / 70, z / 70, 3), 3, 0.4) + 0.5 * s3.fbm(x / 16, z / 16, 2), f);
+    }
+    case 'stunt': {
+      // flat park + earth features: a dirt bowl, a tabletop line, a whoops lane and a step-up mound
+      let t = lerp(h, hc + 0.3 * s3.fbm(x / 30, z / 30, 2), 1 - smoothstep(R * 0.85, R + 70, d));
+      const bowl = Math.hypot(dx + 45, dz - 28); if (bowl < 26) t -= 5.5 * (1 - (bowl / 26) ** 2) ** 1.5;
+      if (Math.abs(dz + 60) < 9) { const lane = 1 - smoothstep(5.5, 9, Math.abs(dz + 60)); for (const c of [-48, 0, 48]) { const q = Math.abs(dx - c); t += lane * 3.4 * (q < 6 ? 1 : q < 16 ? smoothstep(16, 6, q) : 0); } }
+      if (Math.abs(dx + 82) < 7 && dz > -5 && dz < 70) t += (1 - smoothstep(4, 7, Math.abs(dx + 82))) * 0.9 * (0.5 - 0.5 * Math.cos(dz / 7.5 * Math.PI * 2)) * smoothstep(-5, 5, dz) * (1 - smoothstep(60, 70, dz));
+      const m = Math.hypot(dx - 60, dz + 15); if (m < 26) t += 7.5 * smoothstep(26, 9, m) - 2.5 * smoothstep(6, 0, m);
+      return t;
+    }
+    case 'sinkhole': {
+      // cenote: sheer limestone walls, a floor ring around a pool, and one ramp cut down from the rim along u
+      const { floorR, depth: D, poolR, poolDepth, rampW, rampRun } = SINK;
+      const lipNoise = 4 * s2.fbm(x / 13, z / 13, 2);
+      let t: number;
+      if (d < floorR) t = hc - D + 0.4 * s3.fbm(x / 8, z / 8, 2) - (d < poolR ? poolDepth * (1 - (d / poolR) ** 2) : 0);
+      else if (d < R + lipNoise) { const k = (d - floorR) / (R + lipNoise - floorR); t = lerp(hc - D, Math.min(h, hc + 1), Math.pow(smoothstep(0, 1, k), 0.6)); }
+      else t = lerp(h, hc + 0.5 * (h - hc), 1 - smoothstep(R, R + 120, d));
+      const s = dx * ux + dz * uz, lat = Math.abs(dx * uz - dz * ux), s0 = floorR - 6, s1 = R + rampRun;
+      if (s > s0 - 8 && s < s1 + 20 && lat < rampW + 9) {
+        const along = clamp((s - s0) / (s1 - s0), 0, 1), ramp = hc - D + 0.2 + along * (D + 0.4);
+        const wgt = (1 - smoothstep(rampW, rampW + 9, lat)) * smoothstep(s0 - 8, s0, s) * (1 - smoothstep(s1, s1 + 20, s));
+        t = lerp(t, ramp, wgt);
+      }
+      return t;
+    }
+  }
+  return h;
 }
 
 /** Thermal slope limiting on mountains: knife-edge noise ridges relax to natural ~50 degree talus. */
@@ -284,6 +352,20 @@ function carveValleys(data: WorldData) {
         const o = Math.max(0, d - l.r);
         data.height[k] = d < l.r ? l.h : clamp(data.height[k], l.h - o * 0.5, l.h + 0.1 + o * (0.1 + 0.32 * smoothstep(0, 90, o)));
       }
+  }
+}
+
+/** Still water in landmark basins (the sinkhole pool): a wide ribbon at a fixed level (terrain hides what's outside the
+ * basin), plus the physics water grid. Added after the roads so nothing tries to bridge it. */
+export function addPonds(data: WorldData) {
+  const l = LANDMARKS.find((q) => q.id === 'sinkhole');
+  if (!l) return;
+  const lvl = landmarkLevel(l) - SINK.depth - 0.9, R = SINK.poolR + 3;
+  const pts: P2[] = []; for (let t = -R; t <= R; t += 3) pts.push([l.x + t, l.z]);
+  data.rivers.push({ id: 'pond-sinkhole', pts, lvl: pts.map(() => lvl), width: R * 2, mud: false });
+  for (let cj = Math.floor((l.z - R + HALF) / 4); cj <= Math.ceil((l.z + R + HALF) / 4); cj++) for (let ci = Math.floor((l.x - R + HALF) / 4); ci <= Math.ceil((l.x + R + HALF) / 4); ci++) {
+    const x = -HALF + (ci + 0.5) * 4, z = -HALF + (cj + 0.5) * 4;
+    if (sampleH(data.height, x, z) < lvl) { data.water[cj * CTRL + ci] = lvl; data.wet[cj * CTRL + ci] = 140; }
   }
 }
 

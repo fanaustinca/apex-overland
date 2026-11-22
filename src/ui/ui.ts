@@ -7,7 +7,7 @@ import { PRESETS, type GfxSettings } from '../render/gfx';
 import { GARAGES, SPEED_TRAPS } from '../world/props';
 import { CABINS } from '../world/roads';
 import { BIOME_LABEL, type RaceDef } from '../game/races';
-import { HALF, CTRL, N, WORLD } from '../world/layout';
+import { HALF, CTRL, N, WORLD, LANDMARKS } from '../world/layout';
 
 const h = (tag: string, cls = '', html = '') => { const e = document.createElement(tag); if (cls) e.className = cls; if (html) e.innerHTML = html; return e; };
 const fmtT = (t: number) => { const m = Math.floor(t / 60), s = t - m * 60; return `${m}:${s < 10 ? '0' : ''}${s.toFixed(2)}`; };
@@ -49,7 +49,7 @@ export class UI {
   private title() {
     const t = h('div', 'title');
     t.innerHTML = `<div class="logo big">APEX<span>OVERLAND</span></div>
-      <div class="sub">Open-world offroad point-to-point racing · 4 biomes · 17 vehicles · 20 races · 11 garages</div>
+      <div class="sub">Open-world offroad point-to-point racing · 4 biomes · 18 vehicles · 20 races · 11 garages · 5 landmarks</div>
       <div class="menu"><button class="go primary">DRIVE</button><button class="races">RACES</button><button class="set">GRAPHICS</button><button class="help">HOW TO PLAY</button></div>
       <div class="foot">Coins: ⛁ ${this.g.profile.coins.toLocaleString()} · Barn finds ${this.g.profile.barns.length}/4 · Terrain textures & rocks: Poly Haven (CC0)</div>`;
     this.root.appendChild(t);
@@ -199,6 +199,11 @@ export class UI {
       const hit = this.mapIcons().find((ic) => Math.hypot(ic.u - mx, ic.v - mz) < 14);
       if (!hit) return;
       if (hit.kind === 'race') { this.closePanel(); this.g.startRace(hit.id); }
+      else if (hit.kind === 'landmark') {
+        if (!this.g.profile.found.includes('landmark:' + hit.id)) { this.toast('Undiscovered landmark: drive there first', 'warn'); return; }
+        if (this.g.race) this.g.endRace();
+        this.closePanel(); this.g.teleportLandmark(hit.id); this.toast(`Teleported to ${hit.label}`, 'ok');
+      }
       else if (hit.kind === 'garage' || hit.kind === 'barn') {
         if (this.g.race) this.g.endRace();
         this.closePanel();
@@ -212,7 +217,7 @@ export class UI {
       const hit = this.mapIcons().find((ic) => Math.hypot(ic.u - mx, ic.v - mz) < 14);
       cv.style.cursor = hit ? 'pointer' : 'default';
       const info = p.querySelector('.mapinfo') as HTMLElement;
-      info.textContent = hit ? hit.label + (hit.kind === 'race' ? ' — click to race' : hit.kind === 'speed' ? '' : ' — click to fast travel') : '';
+      info.textContent = hit ? hit.label + (hit.kind === 'race' ? ' — click to race' : hit.kind === 'landmark' ? (this.g.profile.found.includes('landmark:' + hit.id) ? ' — click to fast travel' : ' — undiscovered: drive there to find it') : ' — click to fast travel') : '';
       this.hoverRace = hit?.kind === 'race' ? hit.id : '';
     });
     this.drawMapOverlay();
@@ -226,6 +231,7 @@ export class UI {
     }
     for (const r of this.g.races) { const [u, v] = this.w2m(r.path[0][0], r.path[0][1], 1024); icons.push({ kind: 'race', id: r.id, u, v, label: r.name }); }
     for (const c of CABINS) if (this.g.profile.barns.includes(c.id)) { const [u, v] = this.w2m(c.x, c.z, 1024); icons.push({ kind: 'barn', id: c.id, u, v, label: c.name }); }
+    for (const l of LANDMARKS) { const [u, v] = this.w2m(l.x, l.z, 1024); const f = this.g.profile.found.includes('landmark:' + l.id); icons.push({ kind: 'landmark', id: l.id, u, v, label: f ? l.name : `??? (${l.reward} reward)` }); }
     return icons;
   }
   private drawMapOverlay() {
@@ -245,7 +251,8 @@ export class UI {
     for (const ic of this.mapIcons()) {
       const col = ic.kind === 'garage' ? '#5be0ff' : ic.kind === 'race' ? '#ff7a1a' : '#c084fc';
       ctx.fillStyle = 'rgba(0,0,0,0.55)'; ctx.beginPath(); ctx.arc(ic.u, ic.v, 10, 0, 7); ctx.fill();
-      ctx.fillStyle = col; ctx.beginPath(); if (ic.kind === 'race') { ctx.moveTo(ic.u - 6, ic.v + 6); ctx.lineTo(ic.u - 6, ic.v - 7); ctx.lineTo(ic.u + 6, ic.v - 3); ctx.lineTo(ic.u - 4, ic.v + 1); } else ctx.arc(ic.u, ic.v, 6, 0, 7); ctx.fill();
+      if (ic.kind === 'landmark') { ctx.fillStyle = this.g.profile.found.includes('landmark:' + ic.id) ? '#ffd21a' : '#8a8a8a'; ctx.beginPath(); for (let k = 0; k < 10; k++) { const a = -Math.PI / 2 + k * Math.PI / 5, r = k % 2 ? 3.2 : 8; ctx.lineTo(ic.u + Math.cos(a) * r, ic.v + Math.sin(a) * r); } ctx.closePath(); ctx.fill(); }
+      else { ctx.fillStyle = col; ctx.beginPath(); if (ic.kind === 'race') { ctx.moveTo(ic.u - 6, ic.v + 6); ctx.lineTo(ic.u - 6, ic.v - 7); ctx.lineTo(ic.u + 6, ic.v - 3); ctx.lineTo(ic.u - 4, ic.v + 1); } else ctx.arc(ic.u, ic.v, 6, 0, 7); ctx.fill(); }
       if (ic.kind !== 'race' || ic.id === this.hoverRace) { ctx.fillStyle = '#fff'; ctx.strokeStyle = '#000'; ctx.lineWidth = 3; ctx.strokeText(ic.label, ic.u, ic.v - 15); ctx.fillText(ic.label, ic.u, ic.v - 15); }
     }
     for (const s of SPEED_TRAPS) { const [u, v] = this.w2m(s.x, s.z, 1024); ctx.fillStyle = '#ffd21a'; ctx.fillRect(u - 4, v - 4, 8, 8); }

@@ -30,7 +30,7 @@ export function buildVisual(d: VehicleDef, up: Upgrades, st: Stats, module = 0):
   const L = d.len, W = d.wid;
   const wz = d.wheels.map((w) => w.z);
   let a: Anch;
-  const style = ({ sedan: 'rally', buggy: 'rally', limo: 'stripe', crawler: 'band', suv: 'band', pickup: 'stripe', monster: 'rally', sixbysix: 'camo', dakar: 'rally', semi: 'stripe', eightbyeight: 'camo', bus: 'plain', tank: 'camo', dump: 'plain', snake: 'snake', bike: 'rally' } as const)[d.body];
+  const style = ({ sedan: 'rally', buggy: 'rally', limo: 'stripe', crawler: 'band', suv: 'band', pickup: 'stripe', monster: 'rally', monster6: 'rally', sixbysix: 'camo', dakar: 'rally', semi: 'stripe', eightbyeight: 'camo', bus: 'plain', tank: 'camo', dump: 'plain', snake: 'snake', bike: 'rally' } as const)[d.body];
   const num = [8, 88, 0, 80, 18, 8, 11, 38, 0, 88, 8, 80, 0, 8, 88, 0][Math.abs(d.id.split('').reduce((a, ch) => a * 31 + ch.charCodeAt(0), 7)) % 16];
   const livTex = liveryTexture({ base: up.paint ?? d.color, accent: d.color2, style, num, L: L * 1.15, H: Math.max(1.2, d.hgt + 0.6) });
   const livery = dirtify(new THREE.MeshPhysicalMaterial({ map: livTex, metalness: 0.45, roughness: 0.28, clearcoat: 1, clearcoatRoughness: 0.04, envMapIntensity: 2.2 }), mats.dirt);
@@ -44,6 +44,7 @@ export function buildVisual(d: VehicleDef, up: Upgrades, st: Stats, module = 0):
     case 'suv': a = suv(ctx); break;
     case 'pickup': a = pickup(ctx, false); break;
     case 'monster': a = pickup(ctx, true); break;
+    case 'monster6': a = pickup(ctx, true, true); break;
     case 'sixbysix': a = sixbysix(ctx); break;
     case 'dakar': a = dakar(ctx); break;
     case 'semi': a = semi(ctx); break;
@@ -65,7 +66,7 @@ export function buildVisual(d: VehicleDef, up: Upgrades, st: Stats, module = 0):
   // wheels
   const wheels: WheelVis[] = [];
   const tracked = d.special === 'tank';
-  const g = wheelGeos(R, d.wheelW * (up.tires >= 3 ? 1.08 : 1), tracked ? 'allterrain' : up.compound, up.tires, d.body === 'monster');
+  const g = wheelGeos(R, d.wheelW * (up.tires >= 3 ? 1.08 : 1), tracked ? 'allterrain' : up.compound, up.tires, d.body === 'monster' || d.body === 'monster6');
   for (const wd of d.wheels) {
     const group = new THREE.Group(); group.position.set(wd.x, 0, wd.z);
     const steer = new THREE.Group(); group.add(steer);
@@ -367,19 +368,21 @@ function suv(c: Ctx): Anch {
   return { hood: [1.75, y0 + 1.02, 1.0], cab: [-2.3, 1.25, y0 + 1.85, W], front: 2.44, rear: -2.46, bumperY: y0 + 0.32, lightY: y0 + 0.78, exhaust: [[0.6, y0 + 0.15, -2.48]], nosAt: [0, y0 + 2.08, -0.9], snorkelZ: 1.2, roofY: y0 + 1.92 };
 }
 
-function pickup(c: Ctx, monster: boolean): Anch {
+function pickup(c: Ctx, monster: boolean, crew = false): Anch {
   const { body, mats, s, W, y0, wz, L } = c;
   const k = L / 5.6;
   const bw = monster ? 2.1 : W;               // monster bodies are narrower than the track
-  const top: P[] = [[-0.6, 0.12], [-0.62, 1.82], [0.7, 1.86], [1.35, 1.15], [2.6, 1.02], [2.82, 0.65], [2.8, 0.12]].map(([z, y]) => [z * k, y] as P);
+  const cr = crew ? 0.42 : 0;                // crew cab: the cab grows backwards into the bed
+  const top: P[] = [[-0.6 - cr, 0.12], [-0.62 - cr, 1.82], [0.7, 1.86], [1.35, 1.15], [2.6, 1.02], [2.82, 0.65], [2.8, 0.12]].map(([z, y]) => [z * k, y] as P);
   const ar = arches(c);
   const cabPts = monster ? top : withArches(top, wz.filter((z) => z > 0), ar.r, ar.y);
   profileBody(cabPts, bw, 0.1, mats.paint, body, y0, c.livery);
-  windowTrim([[-0.48, 1.18], [-0.48, 1.74], [0.66, 1.78], [1.25, 1.18]].map(([z, y]) => [z * k, y] as P), bw - 0.1, s.glass, mats.trim, body, y0);
+  if (crew) windowTrim([[-0.5 - cr, 1.18], [-0.5 - cr, 1.74], [-0.1, 1.76], [-0.1, 1.18]].map(([z, y]) => [z * k, y] as P), bw - 0.1, s.glass, mats.trim, body, y0);
+  windowTrim([[crew ? 0.0 : -0.48, 1.18], [crew ? 0.0 : -0.48, 1.74], [0.66, 1.78], [1.25, 1.18]].map(([z, y]) => [z * k, y] as P), bw - 0.1, s.glass, mats.trim, body, y0);
   glassQuad([0.7 * k, 1.86], [1.35 * k, 1.15], bw * 0.86, s.glass, body, y0);
-  glassQuad([-0.62 * k, 1.2], [-0.62 * k, 1.75], bw * 0.7, s.glass, body, y0, -0.02);
+  glassQuad([(-0.62 - cr) * k, 1.2], [(-0.62 - cr) * k, 1.75], bw * 0.7, s.glass, body, y0, -0.02);
   // bed
-  const bz0 = -2.8 * k, bz1 = -0.66 * k;
+  const bz0 = -2.8 * k, bz1 = (-0.66 - cr) * k;
   const bedPts: P[] = withArches([[bz0, 0.12], [bz0, 1.08], [bz1, 1.08], [bz1, 0.12]], monster ? [] : wz.filter((z) => z < 0), ar.r, ar.y);
   for (const sd of [-1, 1]) {
     const side = profileBody(bedPts, 0.08, 0.02, mats.paint, body, y0, c.livery); side.position.x = sd * (bw / 2 - 0.04);
@@ -396,13 +399,29 @@ function pickup(c: Ctx, monster: boolean): Anch {
   if (monster) {
     // exposed tube chassis, ladder bars and big fender flares
     for (const sd of [-1, 1]) {
-      tubePath(body, s.steel, [[sd * 0.55, y0 - 0.1, 2.6], [sd * 0.55, y0 - 0.3, 1.75], [sd * 0.55, y0 - 0.3, -1.75], [sd * 0.55, y0 - 0.1, -2.6]], 0.07);
-      for (const z of [1.75, -1.75]) {
-        tube(body, s.chrome, [sd * 0.55, y0 - 0.25, z], [sd * 1.15, y0 - 0.3, z], 0.06);
+      const zf = Math.max(...wz), zr = Math.min(...wz), hx = Math.abs(c.d.wheels[0].x);
+      tubePath(body, s.steel, [[sd * 0.55, y0 - 0.1, zf + 0.85], [sd * 0.55, y0 - 0.3, zf], [sd * 0.55, y0 - 0.3, zr], [sd * 0.55, y0 - 0.1, zr - 0.85]], 0.07);
+      for (const z of [...new Set(wz)]) {
+        tube(body, s.chrome, [sd * 0.55, y0 - 0.25, z], [sd * (hx - 0.17), y0 - 0.3, z], 0.06);
         for (const dz of [-0.35, -0.12, 0.12, 0.35]) { tube(body, s.shock, [sd * 0.75, y0 + 0.25, z + dz], [sd * 1.0, -0.15, z + dz * 0.6], 0.055); tube(body, s.spring[c.up.suspension - 1], [sd * 0.78, y0 + 0.15, z + dz], [sd * 0.94, 0.15, z + dz * 0.6], 0.075); }
       }
     }
-    for (const z of [1.75, -1.75]) box(body, s.steel, 2.3, 0.18, 0.2, 0, -0.05, z, 0.04);
+    for (const z of [...new Set(wz)]) box(body, s.steel, 2.3, 0.18, 0.2, 0, -0.05, z, 0.04);
+    if (crew) {
+      // 6x6: rear crew doors with windows, a roll-bar hoop over the bed, roof light bar and twin chrome stacks
+      for (const sd of [-1, 1]) {
+        box(body, s.chrome, 0.05, 0.05, 0.16, sd * (bw / 2 + 0.03), y0 + 0.98, -0.3 * k, 0.02);   // rear door handle
+        tubePath(body, s.chrome, [[sd * (bw / 2 - 0.12), y0 + 1.08, -1.5 * k], [sd * (bw / 2 - 0.12), y0 + 1.95, -1.6 * k], [sd * 0.4, y0 + 2.15, -1.65 * k]], 0.055);
+        tube(body, s.chrome, [sd * (bw / 2 - 0.12), y0 + 1.6, -1.55 * k], [sd * (bw / 2 - 0.12), y0 + 1.08, -2.5 * k], 0.045);
+        tube(body, s.chrome, [sd * 0.55, y0 + 1.1, -1.14 * k], [sd * 0.55, y0 + 2.7, -1.16 * k], 0.09);
+        const tip = mesh(new THREE.CylinderGeometry(0.1, 0.09, 0.16, 12), s.steel, body); tip.position.set(sd * 0.55, y0 + 2.76, -1.16 * k);
+      }
+      tube(body, s.chrome, [-0.4, y0 + 2.15, -1.65 * k], [0.4, y0 + 2.15, -1.65 * k], 0.055);
+      box(body, mats.trim, bw * 0.8, 0.1, 0.16, 0, y0 + 1.93, 0.55 * k, 0.03);
+      for (let i = 0; i < 6; i++) { const l = box(body, s.chrome, 0.16, 0.08, 0.04, (i - 2.5) * 0.24, y0 + 1.93, 0.55 * k + 0.09); void l; }
+      // spare monster tyre strapped in the bed
+      const sp = mesh(new THREE.TorusGeometry(0.55, 0.22, 10, 24), mats.rubber, body); sp.rotation.x = Math.PI / 2; sp.position.set(0, y0 + 0.75, -2.2 * k);
+    }
   }
   return { hood: [2.0 * k, y0 + 1.06, 1.2 * k], cab: [-0.62 * k, 1.35 * k, y0 + 1.86, bw], front: 2.84 * k, rear: bz0 - 0.1, bumperY: y0 + 0.32, lightY: y0 + 0.78, exhaust: [[0.55, y0 + 0.15, bz0 - 0.1]], nosAt: [0, y0 + 0.68, -1.75 * k], snorkelZ: 1.3 * k, roofY: y0 + 1.86, stacks: monster };
 }

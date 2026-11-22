@@ -2,7 +2,7 @@
 import { N, V, CELL, HALF, CTRL, HUB, GARAGES, LAKES, type P2 } from './layout';
 import { Simplex, smoothstep, clamp } from '../core/noise';
 import { biomeWeights } from './layout';
-import { generateBase, carveRivers, SEED, type WorldData } from './gen';
+import { generateBase, carveRivers, addPonds, SEED, type WorldData } from './gen';
 import { buildRoads, CABINS, type Road, type Bridge, type Pad } from './roads';
 
 /** Terrain texture layers (index = texture-array layer). Keep in sync with tools/fetch-assets.mjs TERRAIN. */
@@ -39,7 +39,7 @@ export function generateWorld(log: (s: string) => void = () => {}, rows?: Float3
   const r = buildRoads(base, pads); lap('roads + earthworks');
   const w = base as World;
   Object.assign(w, r);
-  carveRivers(base); lap('river channels');
+  carveRivers(base); addPonds(base); lap('river channels');
   w.garages = GARAGES.map((g) => ({ id: g.id, x: g.x, z: g.z, yaw: g.yaw }));
   w.normals = computeNormals(w.height); lap('normals');
   if (shade) { const s = shadeRows(w, 0, CTRL); w.bake = s.bake; w.ctrl = s.ctrl; w.surface = s.surface; lap('light bake + splat'); }

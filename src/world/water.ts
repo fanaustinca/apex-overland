@@ -38,7 +38,7 @@ export class Water {
       g.setIndex(idx);
       g.computeBoundingSphere();
       const m = new THREE.ShaderMaterial({
-        uniforms: { ...this.uniforms, uMud: { value: r.mud ? 1 : 0 }, uFlow: { value: r.id === 'canyon' ? 0.6 : 1.1 } },
+        uniforms: { ...this.uniforms, uMud: { value: r.mud ? 1 : 0 }, uFlow: { value: r.id === 'canyon' ? 0.6 : r.id.startsWith('pond') ? 0.0 : 1.1 } },
         vertexShader: /* glsl */`
           attribute float depth; varying float vDepth; varying vec2 vUv; varying vec3 vW;
           void main() { vDepth = depth; vUv = uv; vec4 w = modelMatrix * vec4(position, 1.0); vW = w.xyz; gl_Position = projectionMatrix * viewMatrix * w; }`,

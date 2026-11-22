@@ -9,7 +9,7 @@ import RowsWorker from '../world/rows.worker?worker';
 import { VEHICLES, VEH, STOCK, stats, type Upgrades } from '../vehicles/defs';
 import { buildVisual } from '../vehicles/models';
 import { sampleH } from '../world/gen';
-import { CTRL, HALF, V, BIOME_NAMES, biomeWeights, HUB, LAKES } from '../world/layout';
+import { CTRL, HALF, V, BIOME_NAMES, biomeWeights, HUB, LAKES, LANDMARKS } from '../world/layout';
 import { Physics, initRapier, type RAPIER } from '../physics/physics';
 import { Foliage } from '../world/foliage';
 import { Water } from '../world/water';
@@ -408,7 +408,17 @@ export class Game {
         this.audio.finish(true);
       }
     }
+    for (const l of LANDMARKS) {
+      const key = 'landmark:' + l.id;
+      if (this.profile.found.includes(key) || Math.hypot(p.x - l.x, p.z - l.z) > l.r * 0.8) continue;
+      this.profile.found.push(key); this.profile.coins += l.reward; saveProfile(this.profile);
+      const n = LANDMARKS.filter((q) => this.profile.found.includes('landmark:' + q.id)).length;
+      this.ui.toast(`⭐ Landmark discovered: ${l.name} (${n}/${LANDMARKS.length})  +${l.reward}`, 'coin');
+      this.audio.finish(true);
+    }
   }
+  /** Teleport to a landmark's way in, facing it. */
+  teleportLandmark(id: string) { const l = LANDMARKS.find((q) => q.id === id)!; const d = l.r + (l.id === 'sinkhole' ? 40 : 20); this.teleport(l.x + Math.sin(l.dir) * d, l.z + Math.cos(l.dir) * d, l.dir + Math.PI); }
   canyonRimZ(x: number) { return 1170 + 110 * Math.sin(x / 260 + 0.4) + 45 * Math.sin(x / 93 + 1.3); }
 
   // ---------------- physics interactions ----------------
@@ -674,6 +684,7 @@ function makeDev(game: Game, api: { advance: (s: number) => void; autopilot: (on
     help: ['list every command', () => { console.table(Object.fromEntries(Object.entries(cmds).map(([k, [d]]) => [k, d]))); return 'dev.<command>(...)'; }],
     coins: ['coins(n = 100000): add coins', (n = 100000) => { game.profile.coins += n; saveProfile(game.profile); return game.profile.coins; }],
     tp: ['tp(x, z, yawDeg = 0): teleport the player', (x: number, z: number, yaw = 0) => { game.teleport(x, z, yaw * Math.PI / 180); return game.player.v.position(); }],
+    landmark: ['landmark(id): teleport to a landmark (no arg: list them)', (id?: string) => { if (!id) return LANDMARKS.map((l) => ({ id: l.id, name: l.name, x: l.x, z: l.z, r: l.r })); game.teleportLandmark(id); return LANDMARKS.find((l) => l.id === id)!.name; }],
     garage: ['garage(id): teleport to a garage (no arg: list them)', (id?: string) => { if (!id) return GARAGES.map((g) => g.id); game.teleportGarage(id); return id; }],
     garages: ['list garages', () => console.table(GARAGES.map((g) => ({ id: g.id, name: g.name, x: g.x, z: g.z })))],
     races: ['list races', () => console.table(game.races.map((r) => ({ id: r.id, name: r.name, km: +(r.len / 1000).toFixed(2), strict: r.strict })))],

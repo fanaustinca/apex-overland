@@ -1,5 +1,5 @@
 // Vehicle dynamics on top of Rapier's ray-cast vehicle controller. DOM-free so node tools can simulate it.
-import { RAPIER, G, groups, type Physics } from '../physics/physics';
+import { RAPIER, G, groups, VEH_HITS, type Physics } from '../physics/physics';
 import { COMPOUNDS, ROLL, SNAKE_GAP, modsOf, type VehicleDef, type Upgrades, type Stats } from './defs';
 
 export interface Controls { throttle: number; brake: number; steer: number; handbrake: boolean; nitro: boolean; hop: boolean }
@@ -26,14 +26,15 @@ export class Chassis {
     const W = phys.world, d = def;
     const y0 = d.ride + st.rideLift;
     const h = d.hgt, L = d.len, Wd = d.wid;
-    const comY = d.special === 'bike' ? y0 + 0.2 : Math.min(0, y0 * 0.2) - 0.12;
+    const comY = d.special === 'bike' ? y0 + 0.2 : Math.min(0, y0 * 0.2) - 0.12 - (d.arb ? 0.3 : 0);
     const inertia = { x: mass / 12 * (h * h + L * L) * 1.1, y: mass / 12 * (Wd * Wd + L * L), z: mass / 12 * (Wd * Wd + h * h) * 1.6 };
     const desc = RAPIER.RigidBodyDesc.dynamic().setTranslation(pos.x, pos.y, pos.z)
       .setRotation({ x: 0, y: Math.sin(yaw / 2), z: 0, w: Math.cos(yaw / 2) })
       .setAdditionalMassProperties(mass, { x: 0, y: comY, z: 0 }, inertia, { x: 0, y: 0, z: 0, w: 1 })
       .setLinearDamping(0.02).setAngularDamping(d.special === 'bike' ? 1.2 : 0.35).setCanSleep(false).setCcdEnabled(d.special !== 'tank');
     this.body = W.createRigidBody(desc);
-    const grp = groups(G.VEHICLE, G.TERRAIN | G.VEHICLE | G.TREE | G.LOG | G.PROP);
+    // Snake segments: member SNAKE only, so they hit other vehicles (which filter SNAKE) but never each other
+    const grp = groups(d.special === 'snake' ? G.SNAKE : G.VEHICLE, G.TERRAIN | VEH_HITS | G.TREE | G.LOG | G.PROP);
     const mk = (hx: number, hy: number, hz: number, y: number, z = 0) => {
       const c = W.createCollider(RAPIER.ColliderDesc.cuboid(hx, hy, hz).setTranslation(0, y, z).setDensity(0).setFriction(0.5).setRestitution(0.1)
         .setCollisionGroups(grp).setActiveEvents(RAPIER.ActiveEvents.CONTACT_FORCE_EVENTS).setContactForceEventThreshold(mass * 4), this.body);
@@ -123,6 +124,11 @@ export class Vehicle {
     if (c.throttle > 0.01 && !reversing) {
       const vEff = Math.max(aspd, 4);
       drive = Math.min(power / vEff, this.mass * 9.81 * (d.special === 'bike' ? 0.75 : 1.25)) * c.throttle;
+      if (d.torque) {
+        // extra torque: pull up grades and through mud without changing flat-ground acceleration
+        const climb = Math.max(0, this.main.forward().y);
+        drive += (d.torque - 1) * this.mass * 9.81 * (climb + ROLL[this.main.wheels[0].surface]) * c.throttle;
+      }
       drive *= Math.max(0, Math.min(1, (top - speed) / (top * 0.12)));
     } else if (reversing) {
       drive = -Math.min(power / Math.max(aspd, 4), this.mass * 9.81 * 0.7) * c.brake * 0.55;
@@ -183,7 +189,7 @@ export class Vehicle {
         if (w.water) grip *= 0.8;
         ctrl.setWheelFrictionSlip(i, grip * (this.st.lockDiff ? 1.05 : 1));
       }
-      ctrl.updateVehicle(dt, undefined, groups(G.WHEELRAY, G.TERRAIN | G.LOG | G.PROP | G.VEHICLE), (col) => !this.parts.some((pp) => pp.colliders.includes(col)));
+      ctrl.updateVehicle(dt, undefined, groups(G.WHEELRAY, G.TERRAIN | G.LOG | G.PROP | VEH_HITS), (col) => !this.parts.some((pp) => pp.colliders.includes(col)));
       // read wheel state, surfaces, rolling resistance, water
       const b = p.body, lv = b.linvel();
       let contacts = 0, rollF = 0, waterDepth = 0;
@@ -255,9 +261,36 @@ export class Vehicle {
         b.applyTorqueImpulse({ x: r.x * pitch + fw.x * rollC, y: r.y * pitch + fw.y * rollC, z: r.z * pitch + fw.z * rollC }, true);
       }
       if (isTank && contacts) {
-        // neutral pivot assist
-        const yawT = (c.steer * 0.7 - av.y) * I * dt * 1.4 * (pspd < -0.5 ? -1 : 1);
-        b.applyTorqueImpulse({ x: 0, y: yawT * (Math.abs(c.steer) > 0.05 ? 1 : 0.4), z: 0 }, true);
+        // track steering: a yaw-rate controller on the real yaw inertia (the 12 road wheels' side grip fights a pivot hard).
+        // ~70 deg/s on the spot, easing to ~30 deg/s at full speed; reversing turns the way the hull points.
+        const Iy = d.mass / 12 * (d.wid * d.wid + d.len * d.len);
+        const want = c.steer * (1.25 - 0.7 * Math.min(1, Math.abs(pspd) / 18)) * (pspd < -0.5 ? -1 : 1);
+        const wy = av.x * upv.x + av.y * upv.y + av.z * upv.z;
+        const yawT = (want - wy) * Iy * Math.min(1, dt * 14) * (Math.abs(c.steer) > 0.05 ? 1 : 0.5);
+        b.applyTorqueImpulse({ x: upv.x * yawT, y: upv.y * yawT, z: upv.z * yawT }, true);
+      }
+      if (d.arb && contacts >= 2 && upv.y > 0.2) {
+        // anti-roll bars: resist the left/right suspension difference on every axle (keeps the body flat over bumps and in turns)
+        let diff = 0;
+        for (let i = 0; i + 1 < n; i += 2) if (p.wheels[i].contact || p.wheels[i + 1].contact) diff += p.wheels[i].susp - p.wheels[i + 1].susp;
+        const k = -diff / (n / 2) * d.mass * 9.81 * d.arb * dt;     // wheel i = left (+x): shorter = compressed; +torque about forward lifts the left side
+        b.applyTorqueImpulse({ x: fw.x * k, y: fw.y * k, z: fw.z * k }, true);
+        // extra roll-rate damping
+        const rr = av.x * fw.x + av.y * fw.y + av.z * fw.z, kd = -rr * I * dt * 2.5;
+        b.applyTorqueImpulse({ x: fw.x * kd, y: fw.y * kd, z: fw.z * kd }, true);
+      }
+      if (d.stab && contacts >= 2 && pi === 0 && Math.abs(pspd) > 4 && !c.handbrake) {
+        // yaw stability: let the truck rotate as fast as the steering asks (plus a margin), bleed off anything beyond that
+        const wy = av.x * upv.x + av.y * upv.y + av.z * upv.z;
+        const ask = Math.abs(pspd * Math.tan(Math.abs(steerAmt)) / wb) * 1.2 + 0.15;
+        const over = Math.sign(wy) * Math.max(0, Math.abs(wy) - ask);
+        const Iy = d.mass / 12 * (d.wid * d.wid + d.len * d.len);
+        const yt = -over * Iy * Math.min(1, dt * 10) * d.stab;
+        b.applyTorqueImpulse({ x: upv.x * yt, y: upv.y * yt, z: upv.z * yt }, true);
+        // and pull the velocity back toward the heading (kills slides)
+        const lat = { x: lv.x - fw.x * pspd, z: lv.z - fw.z * pspd };
+        const kk = Math.min(1, dt * 3 * d.stab) * b.mass();
+        b.applyImpulse({ x: -lat.x * kk * 0.5, y: 0, z: -lat.z * kk * 0.5 }, true);
       }
     }
     // snake: hydraulic hinges. Yaw is free (damped), pitch is a stiff spring so the chain flexes over crests but no
@@ -274,6 +307,11 @@ export class Vehicle {
       const kp = (pitchErr * d.mass * 9.81 * SNAKE_PITCH_K - dot(dw, ra) * I * 6) * dt;
       const t = { x: fa.x * kr + ra.x * kp, y: fa.y * kr + ra.y * kp, z: fa.z * kr + ra.z * kp };
       b.applyTorqueImpulse(t, true); a.applyTorqueImpulse({ x: -t.x, y: -t.y, z: -t.z }, true);
+      // fold limit: past ~50 deg the hydraulics stiffen so a tight U-turn can't jackknife the chain into itself
+      let yerr = Math.atan2(fa.x, fa.z) - Math.atan2(fb.x, fb.z);
+      if (yerr > Math.PI) yerr -= Math.PI * 2; if (yerr < -Math.PI) yerr += Math.PI * 2;
+      const lim = 0.87, ex = Math.sign(yerr) * Math.max(0, Math.abs(yerr) - lim);
+      if (ex) { const ky = ex * d.mass * 9.81 * 4 * dt; b.applyTorqueImpulse({ x: 0, y: ky, z: 0 }, true); a.applyTorqueImpulse({ x: 0, y: -ky, z: 0 }, true); }
       const dyaw = (wb.y - wa.y) * d.mass * dt * 0.8;
       b.applyTorqueImpulse({ x: 0, y: -dyaw, z: 0 }, true); a.applyTorqueImpulse({ x: 0, y: dyaw, z: 0 }, true);
     }

@@ -3,7 +3,7 @@
 // flatness + road access. Every race: grade spikes along the path, start/finish on a drivable surface.
 import { generateWorld } from '../src/world/finish';
 import { sampleH } from '../src/world/gen';
-import { GARAGES, LAKES } from '../src/world/layout';
+import { GARAGES, LAKES, LANDMARKS } from '../src/world/layout';
 import { CABINS } from '../src/world/roads';
 import { buildRaces } from '../src/game/races';
 const w = generateWorld();
@@ -38,7 +38,7 @@ for (const r of w.roads) {
   console.log(`${bad ? '✗' : '✓'} ${r.id.padEnd(15)} ${(r.len / 1000).toFixed(2)}km  max grade ${(maxG * 100).toFixed(0)}% ${at}${steep.length ? `  steep×${steep.length}: ${steep.slice(0, 3).join(' ')}` : ''}${ridge ? `  RIDGE×${ridge} ${ridgeAt}` : ''}${drop ? `  drop×${drop} ${dropAt}` : ''}`);
 }
 console.log('\n=== DEAD ENDS ===');
-const dests = [[0, 0, 90], ...w.bridges.flatMap((b) => [[b.a[0], b.a[1], 6], [b.b[0], b.b[1], 6]]), [-1250, -120, 140], [-1060, 560, 90], ...GARAGES.map((g) => [g.x, g.z, 70]), ...CABINS.map((c) => [c.x, c.z, 30]), ...LAKES.map((l) => [l.x, l.z, l.r + 60])] as [number, number, number][];
+const dests = [[0, 0, 90], ...w.bridges.flatMap((b) => [[b.a[0], b.a[1], 6], [b.b[0], b.b[1], 6]]), [-1250, -120, 140], [-1060, 560, 90], ...GARAGES.map((g) => [g.x, g.z, 70]), ...CABINS.map((c) => [c.x, c.z, 30]), ...LAKES.map((l) => [l.x, l.z, l.r + 60]), ...LANDMARKS.map((l) => [l.x, l.z, l.r + 140])] as [number, number, number][];
 for (const r of w.roads) for (const [x, z] of [r.pts[0], r.pts[r.pts.length - 1]]) {
   const joined = w.roads.some((o) => o !== r && o.pts.some((p) => Math.hypot(p[0] - x, p[1] - z) < 14)) || dests.some(([dx, dz, rr]) => Math.hypot(dx - x, dz - z) < rr);
   if (!joined) { problems++; console.log(`✗ ${r.id} ends in the middle of nowhere at (${x.toFixed(0)},${z.toFixed(0)})`); }

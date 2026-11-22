@@ -1,7 +1,7 @@
 // Vehicle roster. Local frame: +z forward, +y up, +x left. Units: metres, kg, kW, m/s.
 export type VClass = 'Featherweight' | 'Lightweight' | 'Mid-Weight' | 'Heavyweight' | 'Juggernaut' | 'Secret';
 export type Special = 'bike' | 'tank' | 'snake' | undefined;
-export type Body = 'bike' | 'buggy' | 'sedan' | 'limo' | 'crawler' | 'suv' | 'pickup' | 'sixbysix' | 'dakar' | 'semi' | 'eightbyeight' | 'monster' | 'bus' | 'tank' | 'dump' | 'snake';
+export type Body = 'bike' | 'buggy' | 'sedan' | 'limo' | 'crawler' | 'suv' | 'pickup' | 'sixbysix' | 'dakar' | 'semi' | 'eightbyeight' | 'monster' | 'monster6' | 'bus' | 'tank' | 'dump' | 'snake';
 
 export interface WheelDef { x: number; z: number; steer: number; drive: boolean }
 export interface VehicleDef {
@@ -18,6 +18,9 @@ export interface VehicleDef {
   plowable: boolean;                                  // can mount the front dozer plow
   heavy: boolean;                                     // breaks medium trees at speed without a plow
   intake: number;                                     // engine air intake height above ground (stall depth)
+  torque?: number;                                    // low-speed / climbing pull multiplier (flat-ground acceleration is unchanged)
+  arb?: number;                                       // anti-roll bar stiffness (x mass g per metre of left/right suspension difference)
+  stab?: number;                                      // yaw stability: caps yaw rate near what the steering asks for (0 = free to drift)
 }
 
 /** The Snake: six single-axle segments on five articulation joints (hinge GAP metres apart, module ends to hinge = GAP/2). */
@@ -74,6 +77,11 @@ export const VEHICLES: VehicleDef[] = [
     mass: 5200, power: 720, top: 41, len: 5.4, wid: 3.4, hgt: 1.6, ride: 0.75, wheelR: 0.86, wheelW: 0.75,
     wheels: [...axle(1.75, 1.32, 1), ...axle(-1.75, 1.32, -0.6)],
     susp: { rest: 1.05, travel: 0.8, stiff: 22, damp: 2.4 }, grip: 1.55, steerMax: 0.5, color: '#7a2bd6', color2: '#79ff3a', plowable: true, heavy: true, intake: 2.6 },
+  { id: 'monster6', name: '6x6 Monster Truck', cls: 'Juggernaut', body: 'monster6', price: 52000, blurb: 'Six 66-inch tyres, a crew cab and a low, wide stance. Same pace as the Monster, but it grips, it pulls and it stays on its wheels.',
+    mass: 6900, power: 955, top: 41, len: 7.2, wid: 3.6, hgt: 1.6, ride: 0.7, wheelR: 0.86, wheelW: 0.75,
+    wheels: [...axle(2.55, 1.42, 1), ...axle(-0.75, 1.42, 0.1), ...axle(-2.8, 1.42, -0.4)],
+    susp: { rest: 1.0, travel: 0.8, stiff: 24, damp: 3.0 }, grip: 1.85, steerMax: 0.5, color: '#d61f3c', color2: '#ffd21a', plowable: true, heavy: true, intake: 2.6,
+    torque: 1.6, arb: 2.4, stab: 0.85 },
   { id: 'bus', name: 'School Bus', cls: 'Juggernaut', body: 'bus', price: 30000, blurb: 'Forty seats, one goal. Surprisingly unstoppable.',
     mass: 11000, power: 300, top: 31, len: 11.0, wid: 2.5, hgt: 3.0, ride: 0.3, wheelR: 0.55, wheelW: 0.34,
     wheels: [...axle(3.6, 1.06, 1, false), ...axle(-2.6, 1.06, 0)],

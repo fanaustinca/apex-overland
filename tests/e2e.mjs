@@ -19,7 +19,7 @@ await test('boots to a playable world without console errors', async () => {
   assert(bad.length === 0, bad.slice(0, 5).join('\n'));
 });
 
-await test('17 vehicles and 20 races are defined', async () => {
+await test('18 vehicles and 20 races are defined', async () => {
   const r = await page.evaluate(() => ({ races: AO.game.races.length, ids: AO.game.races.map((x) => x.id), veh: Object.keys(AO.game.profile.upgrades).length }));
   assert(r.races >= 20, 'races ' + r.races);
   for (const id of ['canyon-breakout', 'rim-jumper', 'dune-basher', 'timberline-plow', 'muddy-creek', 'logging-camp', 'avalanche-switchbacks', 'peak-descent', 'glacier-ridge', 'pit-escape', 'crusher-circuit', 'haul-road-havoc', 'baja-blast', 'ridgeback-rally', 'frozen-lake', 'quarry-mx', 'rim-of-the-world']) assert(r.ids.includes(id), 'missing race ' + id);
@@ -41,7 +41,7 @@ await test('throttle drives the vehicle forward', async () => {
 await test('every vehicle spawns, settles and drives', async () => {
   const r = await page.evaluate(() => {
     const g = AO.game, out = [];
-    for (const id of ['bike', 'buggy', 'sedan', 'limo', 'crawler', 'suv', 'pickup', 'sixbysix', 'dakar', 'semi', 'eightbyeight', 'monster', 'bus', 'tank', 'dump', 'snake']) {
+    for (const id of ['bike', 'buggy', 'sedan', 'limo', 'crawler', 'suv', 'pickup', 'sixbysix', 'dakar', 'semi', 'eightbyeight', 'monster', 'monster6', 'bus', 'tank', 'dump', 'snake']) {
       g.profile.owned.includes(id) || g.profile.owned.push(id);
       g.spawnPlayer(id); g.teleport(0, 120, 0); AO.advance(1);
       const a = AO.state(); AO.hold(['KeyW'], 2.5); const b = AO.state();
@@ -117,6 +117,41 @@ await test('dev console: dev.help() and commands', async () => {
   for (const k of ['help', 'tp', 'garage', 'race', 'finish', 'car', 'coins', 'unlockAll', 'barns', 'pos', 'fps']) assert(r.keys.includes(k), 'missing dev.' + k);
   assert(r.gained === 1234, 'dev.coins failed');
   assert(r.garages >= 11, 'garages ' + r.garages);
+});
+
+await test('landmarks are carved, reachable and pay out when discovered', async () => {
+  const r = await page.evaluate(() => {
+    const g = AO.game, list = window.dev.landmark(), out = [];
+    const water = (x, z) => g.world.water[Math.floor((z + 2560) / 4) * 1280 + Math.floor((x + 2560) / 4)];
+    for (const l of list) {
+      const c0 = g.profile.coins;
+      window.dev.landmark(l.id); AO.advance(0.6);
+      const s0 = AO.state();
+      window.dev.tp(l.x + l.r * 0.5, l.z, 0); AO.advance(0.6);
+      out.push({ id: l.id, gained: g.profile.coins - c0, settled: Math.abs(s0.y - s0.ground) < 3, centre: g.ground(l.x, l.z), rim: g.ground(l.x + l.r, l.z), water: water(l.x, l.z) });
+    }
+    window.dev.garage('hub'); AO.advance(0.5);
+    return out;
+  });
+  assert(r.length >= 5, 'landmarks ' + r.length);
+  for (const l of r) { assert(l.gained > 0, l.id + ' paid nothing'); assert(l.settled, l.id + ': spawned off the ground'); }
+  const crater = r.find((l) => l.id === 'crater'), sink = r.find((l) => l.id === 'sinkhole');
+  assert(crater.rim - crater.centre > 8, `crater too shallow: ${(crater.rim - crater.centre).toFixed(1)} m`);
+  assert(sink.rim - sink.centre > 25 && !Number.isNaN(sink.water), 'sinkhole should be deep with a pool');
+});
+
+await test('tank pivots briskly and the 6x6 monster stays planted', async () => {
+  const r = await page.evaluate(() => {
+    const g = AO.game; g.spawnPlayer('tank'); AO.advance(1);
+    const yaw = () => { const f = g.player.v.main.forward(); return Math.atan2(f.x, f.z); };
+    const y0 = yaw(); AO.hold(['KeyA'], 1.5);
+    let dy = Math.abs(yaw() - y0); if (dy > Math.PI) dy = Math.PI * 2 - dy;
+    g.spawnPlayer('monster6'); AO.advance(1.5); const st = AO.state();
+    g.spawnPlayer('crawler'); AO.advance(0.5);
+    return { dy, y: st.y, ground: st.ground };
+  });
+  assert(r.dy > 0.9, `tank turned only ${(r.dy * 57.3).toFixed(0)} deg in 1.5 s`);
+  assert(Math.abs(r.y - r.ground) < 3.5, 'monster6 spawn');
 });
 
 await test('heavy vehicle with dozer plow smashes trees into physical logs', async () => {
