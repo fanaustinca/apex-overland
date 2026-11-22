@@ -6,7 +6,7 @@ import { clamp, smoothstep, Simplex } from '../core/noise';
 export type RoadKind = 'asphalt' | 'dirt' | 'gravel' | 'snow' | 'trail' | 'haul';
 /** bumps: [fraction along road, height, kicker length, table length, landing length] (metres) */
 /** ctrl: waypoints. Unless `fixed`, the road between waypoints is routed across the terrain by a grade-aware pathfinder. */
-export interface RoadDef { id: string; kind: RoadKind; width: number; ctrl: P2[]; grade: number; bank?: number; earth?: boolean; fixed?: boolean; bumps?: [number, number, number, number, number][]; corridor?: number; pinEnd?: boolean }
+export interface RoadDef { id: string; kind: RoadKind; width: number; ctrl: P2[]; grade: number; bank?: number; earth?: boolean; fixed?: boolean; bumps?: [number, number, number, number, number][]; corridor?: number; pinEnd?: boolean; even?: boolean }
 export interface Road extends RoadDef { pts: P2[]; h: Float32Array; len: number; bridged: Uint8Array; raw?: Float32Array }
 
 /** Bridge spans: deck from rim to rim (the canyon below is not carved). */
@@ -63,10 +63,13 @@ export const SUMMIT: P2 = [-200, -1150];
 const MX = hairpins(-1650, -2000, -1650, 500, 135, 4);
 /** The spot `out` metres beyond a landmark's edge along its way-in bearing. */
 function lmGate(id: string, out: number): P2 { const l = LANDMARKS.find((q) => q.id === id)!; return [l.x + Math.sin(l.dir) * (l.r + out), l.z + Math.cos(l.dir) * (l.r + out)]; }
-/** A point on Lookout Peak's road face: `d` metres out from the summit toward the lodge side, `l` metres across it. */
-function onFace(d: number, l: number): P2 { const ux = Math.sin(PEAK.face), uz = Math.cos(PEAK.face); return [PEAK.x + ux * d - uz * l, PEAK.z + uz * d + ux * l]; }
-/** The summit road's switchback ends (out, across): six legs zig-zagging up the face, each ~80 m higher than the last. */
-const SUMMIT_LEGS: [number, number][] = [[470, -200], [395, 210], [322, -210], [250, 205], [180, -195], [114, 185]];
+/** The Apex summit road: from the Summit Station junction, seven legs across Mount Apex's south face joined by hairpins,
+ *  then the last pull up to the summit. Authored (fixed spline), and the mountain face is fitted to it. */
+const SUMMIT_PATH: P2[] = (() => {
+  const legs = hairpins(-200, -400, -15, -1226, -42, 7), last = legs[legs.length - 1];
+  const gx = PEAK.x + Math.sin(PEAK.face) * (PEAK.plateau - 8), gz = PEAK.z + Math.cos(PEAK.face) * (PEAK.plateau - 8);
+  return [SUMMIT, [-200, -1180], ...legs, [last[0] + (gx - last[0]) * 0.45, last[1] - 30], [gx, gz]] as P2[];
+})();
 export const ROAD_DEFS: RoadDef[] = [
   // hub spokes
   { id: 'hub-south', kind: 'asphalt', width: 11, grade: 0.09, ctrl: [[0, 40], [30, 300], [-30, 560], [60, 820], aN(BRIDGES_X[1]), bN(BRIDGES_X[1])] },
@@ -107,15 +110,21 @@ export const ROAD_DEFS: RoadDef[] = [
   { id: 'peak-descent', kind: 'snow', width: 8, grade: 0.16, ctrl: [SUMMIT, [-330, -1160], [-520, -1140], [-694, -950]] },
   { id: 'glacier-ridge', kind: 'snow', width: 8, grade: 0.16, ctrl: [SUMMIT, [250, -1220], [650, -1330], [1000, -1300], [870, -915]] },
   { id: 'alpine-pass', kind: 'snow', width: 9, grade: 0.13, ctrl: [[-694, -950], [-880, -1060], [-1100, -1120], [-1350, -1210], [-1600, -1300]] },
+  // the northern ranges: the High Traverse runs the whole way across the north, from the outpost valley behind the Pass Hut
+  // round the back of Mount Apex to the frozen lake; two cols tie it to the Radar Station and the Glacier Ridge
+  { id: 'high-traverse', kind: 'gravel', width: 9, grade: 0.14, ctrl: [[-1600, -1700], [-1250, -1960], [-850, -2050], [-420, -2000], [0, -1960], [420, -1900], [820, -1960], [1290, -1730]] },
+  { id: 'radar-col', kind: 'gravel', width: 8, grade: 0.15, ctrl: [lmGate('radar', 6), [-900, -1700], [-850, -2050]] },
+  { id: 'north-spur', kind: 'gravel', width: 8, grade: 0.15, ctrl: [[650, -1330], [520, -1600], [420, -1900]] },
   // landmark trails (each starts on a waypoint of an existing road, so it joins it wherever that road now runs)
   { id: 'lm-crater', kind: 'trail', width: 6, grade: 0.15, ctrl: [[-1350, -520], lmGate('crater', 25)] },
   { id: 'lm-boneyard', kind: 'trail', width: 6, grade: 0.15, ctrl: [[-1960, 1640], lmGate('boneyard', 15)] },
   { id: 'lm-stunt', kind: 'dirt', width: 8, grade: 0.14, ctrl: [[300, -40], lmGate('stunt', 8)] },
-  // Lookout Peak road: from the lake-pass junction by the Icefield Lodge, switchbacking up the peak's south-west face
-  { id: 'summit-road', kind: 'asphalt', width: 10, grade: 0.15, pinEnd: true, ctrl: [[1290, -1730], ...SUMMIT_LEGS.map(([d, l]) => onFace(d, l)), lmGate('summit', -8)] },
+  // Apex summit road: from the Summit Station junction, switchbacking up Mount Apex's south face to the top
+  { id: 'summit-road', kind: 'asphalt', width: 10, grade: 0.15, pinEnd: true, even: true, fixed: true, ctrl: SUMMIT_PATH },
   { id: 'lm-shipwreck', kind: 'trail', width: 6, grade: 0.15, ctrl: [[-720, 1910], lmGate('shipwreck', 10)] },
   { id: 'lm-stones', kind: 'trail', width: 6, grade: 0.15, ctrl: [[1420, -210], lmGate('stones', 6)] },
   { id: 'lm-radar', kind: 'trail', width: 6, grade: 0.15, ctrl: [[-520, -1140], lmGate('radar', 6)] },
+  { id: 'lm-ski', kind: 'snow', width: 7, grade: 0.15, ctrl: [[0, -1960], lmGate('ski', 6)] },
   { id: 'lm-sinkhole', kind: 'trail', width: 6, grade: 0.15, ctrl: [[1760, -1330], lmGate('sinkhole', SINK.rampRun)] },
   ...CABINS.map((c) => ({ id: 'ruts-' + c.id, kind: 'trail' as RoadKind, width: 3.4, grade: 0.3, bank: 4, ctrl: [c.from, ...c.via, [c.x + Math.sin(c.yaw) * 13, c.z + Math.cos(c.yaw) * 13] as P2] })),
 ];
@@ -333,48 +342,59 @@ function earthworks(H: Float32Array, core: Float32Array, noFill: Uint8Array, noE
 }
 
 /**
- * Lookout Peak: re-lay the mountain's flanks through the finished summit road, so the slope between one switchback leg and
+ * Apex summit: re-lay the mountain's flanks through the finished summit road, so the slope between one switchback leg and
  * the next is a smooth hillside (no cut-and-fill crevices, no gullies), easing back into the natural rock away from the road.
  */
 function fitPeak(H: Float32Array, r: Road | undefined, core: Float32Array, others: Road[]) {
   if (!r) return;
   // other roads' samples nearby: the fit fades out well before it reaches them
   const R1 = PEAK.rFace + 200, oth: P2[] = [];
-  for (const o of others) if (o !== r) for (let i = 0; i < o.pts.length; i += 3) if (Math.hypot(o.pts[i][0] - PEAK.x, o.pts[i][1] - PEAK.z) < R1) oth.push(o.pts[i]);
+  // (the roads that merely start at the summit road's own junction don't count: the face behind it is the summit road's)
+  for (const o of others) if (o !== r) for (let i = 0; i < o.pts.length; i += 3) if (Math.hypot(o.pts[i][0] - PEAK.x, o.pts[i][1] - PEAK.z) < R1 && Math.hypot(o.pts[i][0] - r.pts[0][0], o.pts[i][1] - r.pts[0][1]) > 70) oth.push(o.pts[i]);
   const S = 4, sx: number[] = [], sz: number[] = [], sh: number[] = [], top = r.h[r.h.length - 1];
   for (let i = 0; i < r.pts.length; i += S) { sx.push(r.pts[i][0]); sz.push(r.pts[i][1]); sh.push(r.h[i]); }
   // bucket the samples (32 m cells) for neighbour search
   const B = 32, buckets = new Map<number, number[]>();
   const bk = (x: number, z: number) => Math.floor((x + HALF) / B) * 4096 + Math.floor((z + HALF) / B);
   sx.forEach((x, k) => { const q = bk(x, sz[k]); let a = buckets.get(q); if (!a) buckets.set(q, (a = [])); a.push(k); });
-  const REACH = 110, RB = Math.ceil(REACH / B);
-  const R0 = PEAK.rFace + 40;
+  const REACH = 170, RB = Math.ceil(REACH / B);
+  const R0 = PEAK.rFace + 160;
   for (let j = Math.floor((PEAK.z - R0 + HALF) / CELL); j <= Math.ceil((PEAK.z + R0 + HALF) / CELL); j++) for (let i = Math.floor((PEAK.x - R0 + HALF) / CELL); i <= Math.ceil((PEAK.x + R0 + HALF) / CELL); i++) {
     if (i < 0 || j < 0 || i >= V || j >= V) continue;
     const k = j * V + i; if (core[k] === core[k]) continue;
     const x = -HALF + i * CELL, z = -HALF + j * CELL;
     const dp = Math.hypot(x - PEAK.x, z - PEAK.z);
-    if (dp < PEAK.plateau) { H[k] = top + 0.3 * EW_NOISE.fbm(x / 20, z / 20, 2); continue; }   // the summit is level with where the road arrives
     const bi = Math.floor((x + HALF) / B), bj = Math.floor((z + HALF) / B);
-    let sw = 0, swh = 0, dmin = 1e9;
+    // nearest road sample, and the nearest one on a different leg (far along the road but close in space)
+    let dmin = 1e9, n0 = -1;
     for (let a = -RB; a <= RB; a++) for (let b = -RB; b <= RB; b++) {
       const list = buckets.get((bi + a) * 4096 + bj + b); if (!list) continue;
-      for (const s of list) { const d2 = (sx[s] - x) ** 2 + (sz[s] - z) ** 2; if (d2 > REACH * REACH) continue; const d = Math.sqrt(d2); if (d < dmin) dmin = d; const w = 1 / (d2 * d + 300); sw += w; swh += w * sh[s]; }
+      for (const s of list) { const d2 = (sx[s] - x) ** 2 + (sz[s] - z) ** 2; if (d2 < dmin) { dmin = d2; n0 = s; } }
     }
-    if (!sw) { const rim = 1 - smoothstep(PEAK.plateau, PEAK.plateau + 30, dp); if (rim > 0) H[k] += (top - H[k]) * rim; continue; }
+    if (n0 < 0 || dmin > REACH * REACH) continue;
+    dmin = Math.sqrt(dmin);
+    let d1 = 1e9, n1 = -1;
+    for (let a = -RB; a <= RB; a++) for (let b = -RB; b <= RB; b++) {
+      const list = buckets.get((bi + a) * 4096 + bj + b); if (!list) continue;
+      for (const s of list) { const sep = Math.hypot(sx[s] - sx[n0], sz[s] - sz[n0]); if (Math.abs(s - n0) * S * 3 < 2.2 * sep + 30) continue; const d2 = (sx[s] - x) ** 2 + (sz[s] - z) ** 2; if (d2 < d1) { d1 = d2; n1 = s; } }
+    }
+    d1 = Math.sqrt(d1);
+    // a plane from this leg's bench to the next leg's (just the bench, beyond the outermost leg)
+    const tFit = n1 >= 0 && d1 < REACH ? sh[n0] + (sh[n1] - sh[n0]) * smoothstep(0, 1, clamp((dmin - 6) / Math.max(1, dmin + d1 - 12), 0, 1)) : sh[n0];
+    const sw = 1, swh = tFit;
     // the fitted surface owns the ground between the legs; toward the reach it hands back to the natural slope
     const foot = peakFoot(x, z).R;
-    let b = (1 - smoothstep(45, REACH, dmin)) * (1 - smoothstep(foot - 80, foot, dp));
+    let b = (1 - smoothstep(n1 >= 0 && d1 < REACH ? 120 : 40, n1 >= 0 && d1 < REACH ? REACH : 130, dmin)) * (1 - smoothstep(foot + 30, foot + 130, dp));
     for (const l of LAKES) b *= smoothstep(l.r + 30, l.r + 120, Math.hypot(x - l.x, z - l.z));
-    if (b <= 0) { const rim = 1 - smoothstep(PEAK.plateau, PEAK.plateau + 30, dp); if (rim > 0) H[k] += (top - H[k]) * rim; continue; }
+    if (b <= 0) continue;
     let dOther = 1e9; for (const q of oth) { const d2 = (q[0] - x) ** 2 + (q[1] - z) ** 2; if (d2 < dOther) dOther = d2; }
     b *= smoothstep(30, 90, Math.sqrt(dOther));
     if (b <= 0) continue;
     const t = swh / sw, nn = EW_NOISE.fbm(x / 50 + 3, z / 50 - 9, 3);
     H[k] = H[k] + (t + 1.2 * nn + clamp((H[k] - t) * 0.12, -3, 3) - H[k]) * b;
-    // and the rim of the summit eases down from the plateau (only away from the road, which shapes its own approach)
-    const rim = (1 - smoothstep(PEAK.plateau, PEAK.plateau + 24, dp)) * smoothstep(20, 45, dmin);
-    if (rim > 0) H[k] = Math.min(H[k] + (top - H[k]) * rim, top + 0.4);
+    // the very top is level with where the road arrives (the cairn, the deck, a lap round them), easing into the slope
+    const crown = 1 - smoothstep(PEAK.plateau * 0.6, PEAK.plateau + 22, dp);
+    if (crown > 0) H[k] += (top + 0.3 * nn - H[k]) * crown;
   }
 }
 
@@ -597,6 +617,8 @@ export function buildRoads(data: WorldData, pads: Pad[] = []): { roads: Road[]; 
       for (let i = n - 2; i >= 0; i--) if (pin[i] === null) h[i] = clamp(h[i], h[i + 1] - g, h[i + 1] + g);
       for (let i = 0; i < n; i++) if (pin[i] !== null) h[i] = pin[i]!;
     }
+    // an authored climb (the ground is fitted to it afterwards): one even grade from its junction to the top
+    if (def.even) { const L = (n - 1) * 3, h0 = h[0], h1 = h[n - 1]; for (let i = 1; i < n - 1; i++) h[i] = h0 + (h1 - h0) * (i * 3) / L; }
     // light smoothing so the profile has no kinks
     for (let pass = 0; pass < 2; pass++) {
       const h2 = new Float32Array(n);
@@ -689,7 +711,7 @@ export function buildRoads(data: WorldData, pads: Pad[] = []): { roads: Road[]; 
     const fx = Math.sin(g.yaw), fz = Math.cos(g.yaw);
     const A: P2 = [g.x + fx * (D / 2 + 14), g.z + fz * (D / 2 + 14)];
     let best = 1e9, P: P2 = A, ph = 0;
-    for (const r of roads) { if (r.id.startsWith('ruts-') || r.id.startsWith('drive-')) continue; for (let i = 0; i < r.pts.length; i++) { if (r.bridged[i]) continue; const d = Math.hypot(r.pts[i][0] - A[0], r.pts[i][1] - A[1]); if (d < best) { best = d; P = r.pts[i]; ph = r.h[i]; } } }
+    for (const r of roads) { if (r.id.startsWith('ruts-') || r.id.startsWith('drive-') || r.id === 'summit-road') continue; for (let i = 0; i < r.pts.length; i++) { if (r.bridged[i]) continue; const d = Math.hypot(r.pts[i][0] - A[0], r.pts[i][1] - A[1]); if (d < best) { best = d; P = r.pts[i]; ph = r.h[i]; } } }
     const pad: Pad = { x: g.x + fx * (g.main ? 10 : 7), z: g.z + fz * (g.main ? 10 : 7), r: g.main ? 42 : 26, h: ph + 0.15 };
     pads.push(pad);
     for (let j = Math.floor((pad.z - pad.r + HALF) / CELL); j <= Math.ceil((pad.z + pad.r + HALF) / CELL); j++) for (let i = Math.floor((pad.x - pad.r + HALF) / CELL); i <= Math.ceil((pad.x + pad.r + HALF) / CELL); i++) {
@@ -700,9 +722,9 @@ export function buildRoads(data: WorldData, pads: Pad[] = []): { roads: Road[]; 
     addRoad({ id: 'drive-' + g.id, kind: g.main ? 'asphalt' : 'dirt', width: g.main ? 10 : 8, grade: 0.16, fixed: true, ctrl: [A, P] });
   }
   void samples;
-  // then open up slots (never below any road's embankment, so switchback legs stay supported), and fit Lookout Peak's
+  // then open up slots (never below any road's embankment, so switchback legs stay supported), and fit the Apex summit's
   // face (steeper than a fill batter) to its road
-  // Lookout Peak's road builds no embankments (its face is steeper than a fill batter; fitPeak shapes its shoulders)
+  // The summit road builds no embankments (its face is steeper than a fill batter; fitPeak shapes its shoulders)
   const noEmbank = new Uint8Array(V * V), sr = roads.find((r) => r.id === 'summit-road');
   if (sr) for (const [x, z] of sr.pts) { const ci = Math.round((x + HALF) / CELL), cj = Math.round((z + HALF) / CELL), R = Math.ceil((sr.width / 2 + 3) / CELL); for (let dj = -R; dj <= R; dj++) for (let di = -R; di <= R; di++) { const ii = ci + di, jj = cj + dj; if (ii >= 0 && jj >= 0 && ii < V && jj < V) noEmbank[jj * V + ii] = 1; } }
   const fillLimit = earthworks(data.height, core, noFill, noEmbank);

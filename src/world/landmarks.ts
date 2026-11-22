@@ -1,6 +1,6 @@
 // Landmark set pieces (the terrain is shaped in gen.ts): meteorite + ejecta in the Impact Crater, a crashed cargo plane in the
 // Aircraft Boneyard, sandstone spires and a drivable natural arch in the Hoodoo Garden, ramps and a container gap in the
-// Stunt Park, a viewing deck over the Sinkhole, a summit cairn, lookout deck and radio mast on Lookout Peak, a stranded
+// Stunt Park, a viewing deck over the Sinkhole, a summit cairn, lookout deck and radio mast on top of Mount Apex, a stranded
 // sailing ship in the dunes, a ring of standing stones in the forest and a Cold War radar station on a snowy hilltop. Everything solid gets a static collider.
 import * as THREE from 'three';
 import { LANDMARKS, PEAK, type Landmark } from './layout';
@@ -36,6 +36,7 @@ export function buildLandmarks(P: Props, M: Record<string, THREE.Material>) {
   shipwreck(P, M, lm('shipwreck'));
   stones(P, M, lm('stones'));
   radar(P, M, lm('radar'));
+  ski(P, M, lm('ski'));
 }
 
 /** A boulder sitting on the ground with a box collider (big ones only). */
@@ -239,7 +240,7 @@ function sinkhole(P: Props, M: Record<string, THREE.Material>, l: Landmark, rock
   for (const side of [-1, 1]) { const x = l.x + ux * (l.r + 10) + uz * side * 12, z = l.z + uz * (l.r + 10) - ux * side * 12, y = P.h(x, z); P.collide(P.add(new THREE.CylinderGeometry(0.06, 0.06, 2.4, 6), M.steel, x, y + 1.2, z)); P.add(new THREE.PlaneGeometry(1.8, 0.45), new THREE.MeshStandardMaterial({ map: t, side: THREE.DoubleSide }), x, y + 2.2, z, l.dir + Math.PI / 2); }
 }
 
-// ---------------- Lookout Peak ----------------
+// ---------------- Apex Summit ----------------
 function summit(P: Props, M: Record<string, THREE.Material>, l: Landmark, rockMat: THREE.Material) {
   const at = (bear: number, r: number): [number, number] => [l.x + Math.sin(bear) * r, l.z + Math.cos(bear) * r];
   const y0 = P.h(l.x, l.z);
@@ -250,11 +251,11 @@ function summit(P: Props, M: Record<string, THREE.Material>, l: Landmark, rockMa
   P.add(new THREE.CylinderGeometry(0.07, 0.09, 9, 8), M.steel, l.x, y0 + 6.5, l.z);
   const flag = P.add(new THREE.PlaneGeometry(2.4, 1.4), new THREE.MeshStandardMaterial({ color: 0xff7a1a, side: THREE.DoubleSide, roughness: 0.8 }), l.x + 1.25, y0 + 10.2, l.z, 0.4);
   flag.rotation.z = -0.05;
-  const mark = signTexture('LOOKOUT PEAK', '440 M · HIGHEST ROAD IN THE NORTH', '#1b2a35', '#ffffff');
+  const mark = signTexture('APEX SUMMIT', '600 M · THE ROOF OF THE MAP', '#1b2a35', '#ffffff');
   const [mx, mz] = at(PEAK_FACE + 0.5, 6.5), my = P.h(mx, mz);
   for (const s of [-1, 1]) P.collide(P.add(new THREE.CylinderGeometry(0.08, 0.08, 2.6, 8), M.steel, mx + Math.cos(PEAK_FACE + 0.5) * s * 1.1, my + 1.3, mz - Math.sin(PEAK_FACE + 0.5) * s * 1.1));
   P.add(new THREE.PlaneGeometry(2.6, 0.65), new THREE.MeshStandardMaterial({ map: mark, side: THREE.DoubleSide, roughness: 0.6 }), mx, my + 2.2, mz, PEAK_FACE + 0.5 + Math.PI / 2);
-  // the lookout: a deck cantilevered off the north rim, looking out over the ranges toward Mount Apex
+  // the lookout: a deck cantilevered off the north rim, looking out over the northern ranges
   const bear = PEAK_FACE + Math.PI + 0.9, [dx, dz] = at(bear, l.r - 6), dy = Math.max(P.h(dx, dz), y0 - 0.3);
   const g = new THREE.Group(); g.position.set(dx, dy, dz); g.rotation.y = bear; P.group.add(g);
   const floor = new THREE.Mesh(new THREE.BoxGeometry(9, 0.35, 12), M.planks); floor.position.set(0, 0.3, 4); g.add(floor); P.collide(floor);
@@ -275,7 +276,7 @@ function summit(P: Props, M: Record<string, THREE.Material>, l: Landmark, rockMa
   const seat = new THREE.Mesh(new THREE.BoxGeometry(2.6, 0.08, 0.5), M.wood); seat.position.set(0, 0.95, 1.6); g.add(seat);
   const back = new THREE.Mesh(new THREE.BoxGeometry(2.6, 0.5, 0.06), M.wood); back.position.set(0, 1.25, 1.35); g.add(back);
   for (const s of [-1, 1]) { const leg = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.5, 0.45), M.steel); leg.position.set(s * 1.15, 0.7, 1.6); g.add(leg); }
-  const pano = signTexture('PANORAMA', 'FROZEN LAKE · MOUNT APEX · THE SINKHOLE', '#22313b', '#ffd9a0');
+  const pano = signTexture('PANORAMA', 'THE HUB · FOUR BIOMES · 2.5 KM EACH WAY', '#22313b', '#ffd9a0');
   const board = new THREE.Mesh(new THREE.PlaneGeometry(2.8, 0.7), new THREE.MeshStandardMaterial({ map: pano, roughness: 0.6 })); board.position.set(0, 1.2, 9.6); board.rotation.x = -0.6; board.rotation.y = Math.PI; g.add(board);
   // weather station on the back of the summit: a lattice mast with a red beacon and a hut
   const [hx, hz] = at(PEAK_FACE + Math.PI - 0.5, 27), hy = P.h(hx, hz);
@@ -441,5 +442,68 @@ function radar(P: Props, M: Record<string, THREE.Material>, l: Landmark) {
     const a = k / 36 * Math.PI * 2; let dd = Math.atan2(Math.sin(a - l.dir), Math.cos(a - l.dir)); if (Math.abs(dd) < 0.25) continue;
     const [x, y, z] = at(a, l.r - 2); P.add(new THREE.CylinderGeometry(0.06, 0.06, 2.2, 5), M.steel, x, y + 1.1, z);
     if (k % 2 === 0) { const [x2, y2, z2] = at(a + Math.PI / 36, l.r - 2); P.add(new THREE.BoxGeometry(0.03, 0.03, Math.hypot(x2 - x, z2 - z)), M.steel, (x + x2) / 2, (y + y2) / 2 + 1.9, (z + z2) / 2, Math.atan2(x2 - x, z2 - z)); }
+  }
+}
+
+// ---------------- Apex Ski Club ----------------
+function ski(P: Props, M: Record<string, THREE.Material>, l: Landmark) {
+  const red = new THREE.MeshStandardMaterial({ color: 0xc8202a, roughness: 0.5 }), blue = new THREE.MeshStandardMaterial({ color: 0x1f56c8, roughness: 0.5 });
+  const yellow = M.yellow, up = Math.atan2(PEAK.x - l.x, PEAK.z - l.z);            // bearing up the slope, toward the summit
+  const ux = Math.sin(up), uz = Math.cos(up), px = Math.cos(up), pz = -Math.sin(up);
+  const at = (s: number, o: number): [number, number, number] => { const x = l.x + ux * s + px * o, z = l.z + uz * s + pz * o; return [x, P.h(x, z), z]; };
+  // chalet base lodge: stone footing, timber walls, a steep roof
+  { const [x, y, z] = at(-6, -24), yaw = up;
+    P.solid(12, 3.4, 9, M.darkPlanks, x, y + 1.6, z, yaw);
+    const roof = new THREE.Shape(); roof.moveTo(-7, 0); roof.lineTo(0, 5.2); roof.lineTo(7, 0); roof.closePath();
+    const rg = new THREE.ExtrudeGeometry(roof, { depth: 10.5, bevelEnabled: false }); rg.translate(0, 0, -5.25);
+    P.add(rg, M.corr, x, y + 3.3, z, yaw + Math.PI / 2);
+    blockCollider(P, 10.5, 5, 13, x, y + 5.5, z, yaw);
+    const sg = signTexture('APEX SKI CLUB', 'CHAIRLIFT · SLALOM · JUMP · EST. 1968', '#4a1d12', '#ffe0b0');
+    P.add(new THREE.PlaneGeometry(5.6, 1.4), new THREE.MeshStandardMaterial({ map: sg }), x - ux * 4.6, y + 3.0, z - uz * 4.6, up + Math.PI);
+  }
+  // chairlift: bottom station, towers up the fall line, cable, chairs, top station
+  const L = 250, oX = 14, N = 6, tops: THREE.Vector3[] = [];
+  for (let k = 0; k <= N; k++) {
+    const s = 6 + k * (L / N), [x, y, z] = at(s, oX), hgt = k === 0 || k === N ? 6 : 11;
+    if (k === 0 || k === N) {
+      P.solid(7, 4, 6, M.concrete, x, y + 1.8, z, up);
+      const wheel = P.add(new THREE.TorusGeometry(2.2, 0.18, 6, 20), M.steel, x, y + hgt, z); wheel.rotation.x = Math.PI / 2;
+      tops.push(new THREE.Vector3(x, y + hgt, z));
+    } else {
+      P.collide(P.add(new THREE.CylinderGeometry(0.35, 0.5, hgt, 8), M.steel, x, y + hgt / 2, z));
+      P.add(new THREE.BoxGeometry(5, 0.35, 0.5), M.steel, x, y + hgt, z, up + Math.PI / 2);
+      tops.push(new THREE.Vector3(x, y + hgt, z));
+    }
+  }
+  for (const side of [-2.1, 2.1]) for (let k = 0; k < tops.length - 1; k++) {
+    const a = tops[k].clone().add(new THREE.Vector3(px * side, -0.3, pz * side)), b = tops[k + 1].clone().add(new THREE.Vector3(px * side, -0.3, pz * side));
+    const len = a.distanceTo(b), cab = P.add(new THREE.CylinderGeometry(0.04, 0.04, len, 4), M.dark, (a.x + b.x) / 2, (a.y + b.y) / 2, (a.z + b.z) / 2);
+    cab.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), b.clone().sub(a).normalize());
+    for (let c = 1; c < 4; c++) {
+      const p = a.clone().lerp(b, c / 4);
+      P.add(new THREE.CylinderGeometry(0.03, 0.03, 2, 4), M.dark, p.x, p.y - 1, p.z);
+      P.add(new THREE.BoxGeometry(1.6, 0.12, 0.7), side > 0 ? red : blue, p.x, p.y - 2.05, p.z, up);
+      P.add(new THREE.BoxGeometry(1.6, 0.7, 0.1), side > 0 ? red : blue, p.x - ux * 0.32, p.y - 1.75, p.z - uz * 0.32, up);
+    }
+  }
+  // slalom gates down the piste
+  for (let k = 0; k < 9; k++) {
+    const s = 40 + k * 22, o = -18 + (k % 2 ? 9 : -9), [x, y, z] = at(s, o), m = k % 2 ? red : blue;
+    for (const e of [-2, 2]) { const [gx, gy, gz] = at(s, o + e); P.add(new THREE.CylinderGeometry(0.05, 0.05, 1.8, 6), m, gx, gy + 0.9, gz); }
+    P.add(new THREE.PlaneGeometry(4, 0.6), new THREE.MeshStandardMaterial({ color: (m as THREE.MeshStandardMaterial).color, side: THREE.DoubleSide, roughness: 0.8 }), x, y + 1.5, z, up + Math.PI / 2);
+  }
+  // the jump: a timber kicker on the run-out, lip facing down the slope (come down the piste and send it)
+  { const [x, y, z] = at(20, -18), len = 14, hgt = 3.2, pitch = Math.atan2(hgt, len);
+    const ramp = P.solid(7, 0.5, Math.hypot(len, hgt), M.planks, x, y + hgt / 2, z, up, 2, pitch);
+    void ramp;
+    for (const e of [-1, 1]) P.solid(0.3, hgt, 0.3, M.wood, x + px * e * 3.2 - ux * (len / 2 - 0.3), y + hgt / 2, z + pz * e * 3.2 - uz * (len / 2 - 0.3), up);
+    for (const e of [-1, 1]) P.add(new THREE.CylinderGeometry(0.06, 0.06, 2.4, 6), yellow, x + px * e * 4.2 - ux * (len / 2), y + hgt + 1.2, z + pz * e * 4.2 - uz * (len / 2));
+  }
+  // a piste groomer parked by the lodge
+  { const [x, y, z] = at(-14, -6);
+    P.solid(3.2, 1.8, 4.2, red, x, y + 1.6, z, up + 0.4);
+    P.solid(2.6, 1.3, 2, M.glass, x + ux * 0.6, y + 3.0, z + uz * 0.6, up + 0.4);
+    for (const e of [-1, 1]) P.solid(0.9, 1.0, 5, M.dark, x + Math.cos(up + 0.4) * e * 1.9, y + 0.55, z - Math.sin(up + 0.4) * e * 1.9, up + 0.4);
+    P.solid(4.4, 0.9, 0.4, M.steel, x - Math.sin(up + 0.4) * 2.9, y + 0.6, z - Math.cos(up + 0.4) * 2.9, up + 0.4);
   }
 }

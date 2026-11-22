@@ -49,7 +49,7 @@ export class UI {
   private title() {
     const t = h('div', 'title');
     t.innerHTML = `<div class="logo big">APEX<span>OVERLAND</span></div>
-      <div class="sub">Open-world offroad point-to-point racing · 4 biomes · 18 vehicles · 21 races · 11 garages · 9 landmarks</div>
+      <div class="sub">Open-world offroad point-to-point racing · 4 biomes · 18 vehicles · 22 races · 11 garages · 10 landmarks</div>
       <div class="menu"><button class="go primary">DRIVE</button><button class="races">RACES</button><button class="set">GRAPHICS</button><button class="help">HOW TO PLAY</button></div>
       <div class="foot">Coins: ⛁ ${this.g.profile.coins.toLocaleString()} · Barn finds ${this.g.profile.barns.length}/4 · Terrain textures & rocks: Poly Haven (CC0)</div>`;
     this.root.appendChild(t);

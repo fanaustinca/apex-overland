@@ -71,10 +71,11 @@ export const GARAGES = [
 ];
 
 /** Landmarks: set-piece terrain (and props) out in the open country, worth a detour. Discovering one pays out. */
-export type LandmarkKind = 'crater' | 'boneyard' | 'hoodoos' | 'stunt' | 'sinkhole' | 'summit' | 'shipwreck' | 'stones' | 'radar';
-/** Lookout Peak: a lone summit above the Icefield Lodge. Its broad south-west face (bearing `face`) carries the summit road
- *  up in switchbacks; the other flanks are steep and rugged. Flat-topped (radius `plateau`) for the viewing deck. */
-export const PEAK = { x: 1775, z: -2205, h: 440, plateau: 26, face: -0.84, rFace: 540, rBack: 350 };
+export type LandmarkKind = 'crater' | 'boneyard' | 'hoodoos' | 'stunt' | 'sinkhole' | 'summit' | 'shipwreck' | 'stones' | 'radar' | 'ski';
+/** The Apex summit: Mount Apex's top is reshaped into a flat-topped summit with a long, even south face (bearing `face`)
+ *  that rises straight out of the Summit Station; the summit road switchbacks up it. The other flanks stay steep and
+ *  rugged. `base` is the ground level the face runs down to. */
+export const PEAK = { x: -150, z: -1560, h: 600, base: 335, plateau: 26, face: -0.12, rFace: 430, rBack: 430 };
 export interface Landmark { id: LandmarkKind; name: string; x: number; z: number; r: number; reward: number; blurb: string; dir: number }
 export const LANDMARKS: Landmark[] = [
   // dir: the bearing (radians, atan2(dx, dz)) of the way in: a trail, ramp or notch faces that way
@@ -82,10 +83,11 @@ export const LANDMARKS: Landmark[] = [
   { id: 'boneyard', name: 'Aircraft Boneyard', x: -1930, z: 1240, r: 120, reward: 1200, dir: 0, blurb: 'A crashed cargo plane and its scrapped cousins. The broken wing is a ramp.' },
   { id: 'hoodoos', name: 'Hoodoo Garden', x: -330, z: 1360, r: 140, reward: 1200, dir: 0, blurb: 'Rock spires, balanced caprocks and a natural arch you can drive through.' },
   { id: 'stunt', name: 'Stunt Park', x: 470, z: -380, r: 115, reward: 1000, dir: 0, blurb: 'Kickers, tabletops, a bowl and a container gap. Send it.' },
-  { id: 'summit', name: 'Lookout Peak', x: PEAK.x, z: PEAK.z, r: PEAK.plateau, reward: 2000, dir: PEAK.face, blurb: 'A viewing deck 440 m up, over the frozen lake. Wind your way up from the Icefield Lodge.' },
+  { id: 'summit', name: 'Apex Summit', x: PEAK.x, z: PEAK.z, r: PEAK.plateau, reward: 2500, dir: PEAK.face, blurb: 'The top of Mount Apex: a viewing deck 600 m up. Switchback your way there from the Summit Station.' },
   { id: 'shipwreck', name: 'Desert Shipwreck', x: -880, z: 2130, r: 62, reward: 1400, dir: Math.PI, blurb: 'An old three-master stranded in the dune sea, half buried. The dune bank runs right up onto her deck.' },
   { id: 'stones', name: 'Standing Stones', x: 1350, z: -420, r: 46, reward: 1100, dir: 0.32, blurb: 'A ring of mossy monoliths deep in the woods, with two great trilithon gates to drive through.' },
   { id: 'radar', name: 'Radar Station', x: -850, z: -1400, r: 56, reward: 1500, dir: 0.9, blurb: 'Abandoned early-warning station on a snowy hilltop: radomes, a giant dish and the best view of Mount Apex.' },
+  { id: 'ski', name: 'Apex Ski Club', x: -150, z: -1945, r: 42, reward: 1300, dir: 1.57, blurb: 'A ski area on the north face of Mount Apex: a chairlift, slalom gates and a ski jump you can launch a truck off.' },
   { id: 'sinkhole', name: 'The Sinkhole', x: 1910, z: -1640, r: 72, reward: 1800, dir: -0.45, blurb: 'A 35 m deep cenote with a turquoise pool. One ramp down, one way out.' },
 ];
 

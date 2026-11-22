@@ -99,6 +99,9 @@ export function buildRaces(roads: Road[], rivers: RiverLike[] = []): RaceDef[] {
     B([S('peak-descent'), S('alpine-pass')]), 800, { alts: [[SUMMIT, [-500, -1050], [-694, -950]]] });
   add('glacier-ridge', 'Glacier Ridge', 2, 'Ride the high glacier ridge east from the summit, then plunge into the forest.', 2900,
     B([S('glacier-ridge')]), 700);
+  if (roads.some((r) => r.id === 'high-traverse'))
+    add('high-traverse', 'High Traverse', 2, 'The whole northern range end to end: from the outpost valley behind the Pass Hut, round the back of Mount Apex past the ski club, to the frozen lake.', 4400,
+      B([S('high-traverse')]), 1000, { minSave: 350 });
   const lake = LAKES.find((l) => l.id === 'frozen');
   if (lake) {
     // slalom around the ice sheet: one and a half laps of a wavy ring
@@ -108,11 +111,11 @@ export function buildRaces(roads: Road[], rivers: RiverLike[] = []): RaceDef[] {
       B([line]), 260, { strict: true, rivals: 3 });
   }
   if (roads.some((r) => r.id === 'summit-road')) {
-    // up the switchbacks from the lodge junction, once round the summit cairn, and all the way back down
+    // up the hairpin stack from the Summit Station, once round the summit cairn, and all the way back down
     const up = slice(roads, { r: 'summit-road' }), top = up[up.length - 1];
     const a0 = Math.atan2(top[1] - PEAK.z, top[0] - PEAK.x), loop: P2[] = [];
     for (let k = 0; k <= 48; k++) { const a = a0 + k / 48 * Math.PI * 2; loop.push([PEAK.x + Math.cos(a) * 17, PEAK.z + Math.sin(a) * 17]); }
-    add('lookout-hillclimb', 'Lookout Peak Hillclimb', 2, 'From the foot of Lookout Peak up every switchback to the summit, once round the cairn, then all the way back down. Every gate counts.', 3800,
+    add('apex-hillclimb', 'Apex Summit Hillclimb', 2, 'From the Summit Station up every hairpin of Mount Apex to the very top, once round the cairn, then all the way back down. Every gate counts.', 3800,
       B([up, loop, [...up].reverse()]), 320, { strict: true, rivals: 4 });
   }
   // ---------------- Industrial Quarry ----------------

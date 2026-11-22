@@ -19,10 +19,10 @@ await test('boots to a playable world without console errors', async () => {
   assert(bad.length === 0, bad.slice(0, 5).join('\n'));
 });
 
-await test('18 vehicles and 21 races are defined', async () => {
+await test('18 vehicles and 22 races are defined', async () => {
   const r = await page.evaluate(() => ({ races: AO.game.races.length, ids: AO.game.races.map((x) => x.id), veh: Object.keys(AO.game.profile.upgrades).length }));
-  assert(r.races >= 21, 'races ' + r.races);
-  for (const id of ['canyon-breakout', 'rim-jumper', 'dune-basher', 'timberline-plow', 'muddy-creek', 'logging-camp', 'avalanche-switchbacks', 'peak-descent', 'glacier-ridge', 'pit-escape', 'crusher-circuit', 'haul-road-havoc', 'baja-blast', 'ridgeback-rally', 'frozen-lake', 'lookout-hillclimb', 'quarry-mx', 'rim-of-the-world']) assert(r.ids.includes(id), 'missing race ' + id);
+  assert(r.races >= 22, 'races ' + r.races);
+  for (const id of ['canyon-breakout', 'rim-jumper', 'dune-basher', 'timberline-plow', 'muddy-creek', 'logging-camp', 'avalanche-switchbacks', 'peak-descent', 'glacier-ridge', 'pit-escape', 'crusher-circuit', 'haul-road-havoc', 'baja-blast', 'ridgeback-rally', 'frozen-lake', 'apex-hillclimb', 'high-traverse', 'quarry-mx', 'rim-of-the-world']) assert(r.ids.includes(id), 'missing race ' + id);
 });
 
 await test('player spawns on the ground at the hub garage', async () => {
@@ -133,13 +133,13 @@ await test('landmarks are carved, reachable and pay out when discovered', async 
     window.dev.garage('hub'); AO.advance(0.5);
     return out;
   });
-  assert(r.length >= 9, 'landmarks ' + r.length);
+  assert(r.length >= 10, 'landmarks ' + r.length);
   for (const l of r) { assert(l.gained > 0, l.id + ' paid nothing'); assert(l.settled, l.id + ': spawned off the ground'); }
   const crater = r.find((l) => l.id === 'crater'), sink = r.find((l) => l.id === 'sinkhole');
   assert(crater.rim - crater.centre > 8, `crater too shallow: ${(crater.rim - crater.centre).toFixed(1)} m`);
   assert(sink.rim - sink.centre > 25 && !Number.isNaN(sink.water), 'sinkhole should be deep with a pool');
   const peak = r.find((l) => l.id === 'summit');
-  assert(peak && peak.centre > 400, 'Lookout Peak summit should stand 400 m+ up: ' + peak?.centre);
+  assert(peak && peak.centre > 550, 'Apex summit should stand 550 m+ up: ' + peak?.centre);
 });
 
 await test('tank pivots briskly and the 6x6 monster stays planted', async () => {

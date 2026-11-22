@@ -196,8 +196,9 @@ export function landmarkLevel(l: Landmark): number {
 }
 /** Sinkhole geometry shared with the props and pond code. */
 export const SINK = { floorR: 46, depth: 36, poolR: 27, poolDepth: 4.5, rampW: 6, rampRun: 125 };
-/** Lookout Peak: a flat-topped summit with a long, even south-west face (the road's switchbacks) and steep ribbed flanks. */
-/** Lookout Peak's footprint radius toward (x, z), and how much that bearing faces the road side (1) vs round the back (0). */
+/** The Apex summit: a flat-topped summit with a long, even south-west face (the road's switchbacks) and steep ribbed flanks. */
+const SKI_LM = LANDMARKS.find((l) => l.id === 'ski');
+/** The Apex summit's footprint radius toward (x, z), and how much that bearing faces the road side (1) vs round the back (0). */
 export function peakFoot(x: number, z: number): { R: number; fw: number } {
   const bear = Math.atan2(x - PEAK.x, z - PEAK.z);
   let df = bear - PEAK.face; if (df > Math.PI) df -= Math.PI * 2; if (df < -Math.PI) df += Math.PI * 2;
@@ -210,9 +211,12 @@ function peakH(x: number, z: number, h: number): number {
   if (d >= R) return h;
   const t = clamp((d - PEAK.plateau) / (R - PEAK.plateau), 0, 1);
   // the old ground under the mountain gives way to a smooth apron toward the middle (no stray crags on the road face)
-  const apron = lerp(h, 150 + 8 * s3.fbm(x / 140, z / 140, 2), 1 - smoothstep(0.6 * R, R, d));
+  const apron = lerp(h, PEAK.base + 8 * s3.fbm(x / 140, z / 140, 2), 1 - smoothstep(0.6 * R, R, d));
   const f = 1 - (0.7 * t + 0.3 * smoothstep(0, 1, t));                       // near-even slope, a rounded shoulder and foot
-  const ribs = (1 - fw) * 34 * s2.ridged(x / 130 + 5, z / 130, 4) * Math.sin(Math.PI * t);
+  // (no rock ribs down the ski piste: a groomed corridor up the fall line from the Apex Ski Club to the shoulder)
+  const sk = SKI_LM, along = sk ? ((x - sk.x) * (PEAK.x - sk.x) + (z - sk.z) * (PEAK.z - sk.z)) / Math.hypot(PEAK.x - sk.x, PEAK.z - sk.z) : -1;
+  const piste = sk && along > -30 && along < 320 ? 1 - smoothstep(26, 60, Math.abs(((x - sk.x) * (PEAK.z - sk.z) - (z - sk.z) * (PEAK.x - sk.x)) / Math.hypot(PEAK.x - sk.x, PEAK.z - sk.z))) : 0;
+  const ribs = (1 - fw) * 34 * s2.ridged(x / 130 + 5, z / 130, 4) * Math.sin(Math.PI * t) * (1 - piste);
   const grain = 3 * s3.fbm(x / 45, z / 45, 2) * smoothstep(0, 0.12, t);
   return lerp(apron, PEAK.h, f) + ribs + grain;
 }
@@ -230,6 +234,7 @@ function landmarkH(l: Landmark, x: number, z: number, h: number): number {
       t += 2.2 * Math.exp(-(((lat + 20) / 16) ** 2)) * (1 - smoothstep(10, 45, Math.abs(along + 8)));
       return t;
     }
+    case 'ski': return lerp(h, hc + 0.3 * s3.fbm(x / 25, z / 25, 2), 1 - smoothstep(R * 0.7, R + 50, d));
     case 'stones': return lerp(h, hc + 0.3 * s3.fbm(x / 20, z / 20, 2), 1 - smoothstep(R * 0.75, R + 70, d)) + 1.0 * Math.exp(-((d / 10) ** 2));
     case 'radar': {
       // the hilltop is levelled into a compound, easing back into the natural slopes below it
