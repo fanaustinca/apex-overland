@@ -1,12 +1,12 @@
 // Road network: authored control points, splined, graded (max slope) and carved into the heightmap.
-import { canyonZ, BRIDGES_X, NARROWS, PITS, HALF, CELL, N, V, CTRL, CANYON_X0, CANYON_X1, GARAGES, LAKES, LANDMARKS, type P2 } from './layout';
-import { spline, resample, sampleH, carveAlong, distToPolylineFast, type WorldData, APEX, SINK } from './gen';
+import { canyonZ, BRIDGES_X, NARROWS, PITS, HALF, CELL, N, V, CTRL, CANYON_X0, CANYON_X1, GARAGES, LAKES, LANDMARKS, PEAK, type P2 } from './layout';
+import { spline, resample, sampleH, carveAlong, distToPolylineFast, type WorldData, APEX, SINK, peakFoot } from './gen';
 import { clamp, smoothstep, Simplex } from '../core/noise';
 
 export type RoadKind = 'asphalt' | 'dirt' | 'gravel' | 'snow' | 'trail' | 'haul';
 /** bumps: [fraction along road, height, kicker length, table length, landing length] (metres) */
 /** ctrl: waypoints. Unless `fixed`, the road between waypoints is routed across the terrain by a grade-aware pathfinder. */
-export interface RoadDef { id: string; kind: RoadKind; width: number; ctrl: P2[]; grade: number; bank?: number; earth?: boolean; fixed?: boolean; bumps?: [number, number, number, number, number][] }
+export interface RoadDef { id: string; kind: RoadKind; width: number; ctrl: P2[]; grade: number; bank?: number; earth?: boolean; fixed?: boolean; bumps?: [number, number, number, number, number][]; corridor?: number; pinEnd?: boolean }
 export interface Road extends RoadDef { pts: P2[]; h: Float32Array; len: number; bridged: Uint8Array; raw?: Float32Array }
 
 /** Bridge spans: deck from rim to rim (the canyon below is not carved). */
@@ -63,6 +63,10 @@ export const SUMMIT: P2 = [-200, -1150];
 const MX = hairpins(-1650, -2000, -1650, 500, 135, 4);
 /** The spot `out` metres beyond a landmark's edge along its way-in bearing. */
 function lmGate(id: string, out: number): P2 { const l = LANDMARKS.find((q) => q.id === id)!; return [l.x + Math.sin(l.dir) * (l.r + out), l.z + Math.cos(l.dir) * (l.r + out)]; }
+/** A point on Lookout Peak's road face: `d` metres out from the summit toward the lodge side, `l` metres across it. */
+function onFace(d: number, l: number): P2 { const ux = Math.sin(PEAK.face), uz = Math.cos(PEAK.face); return [PEAK.x + ux * d - uz * l, PEAK.z + uz * d + ux * l]; }
+/** The summit road's switchback ends (out, across): six legs zig-zagging up the face, each ~80 m higher than the last. */
+const SUMMIT_LEGS: [number, number][] = [[470, -200], [395, 210], [322, -210], [250, 205], [180, -195], [114, 185]];
 export const ROAD_DEFS: RoadDef[] = [
   // hub spokes
   { id: 'hub-south', kind: 'asphalt', width: 11, grade: 0.09, ctrl: [[0, 40], [30, 300], [-30, 560], [60, 820], aN(BRIDGES_X[1]), bN(BRIDGES_X[1])] },
@@ -107,6 +111,11 @@ export const ROAD_DEFS: RoadDef[] = [
   { id: 'lm-crater', kind: 'trail', width: 6, grade: 0.15, ctrl: [[-1350, -520], lmGate('crater', 25)] },
   { id: 'lm-boneyard', kind: 'trail', width: 6, grade: 0.15, ctrl: [[-1960, 1640], lmGate('boneyard', 15)] },
   { id: 'lm-stunt', kind: 'dirt', width: 8, grade: 0.14, ctrl: [[300, -40], lmGate('stunt', 8)] },
+  // Lookout Peak road: from the lake-pass junction by the Icefield Lodge, switchbacking up the peak's south-west face
+  { id: 'summit-road', kind: 'asphalt', width: 10, grade: 0.15, pinEnd: true, ctrl: [[1290, -1730], ...SUMMIT_LEGS.map(([d, l]) => onFace(d, l)), lmGate('summit', -8)] },
+  { id: 'lm-shipwreck', kind: 'trail', width: 6, grade: 0.15, ctrl: [[-720, 1910], lmGate('shipwreck', 10)] },
+  { id: 'lm-stones', kind: 'trail', width: 6, grade: 0.15, ctrl: [[1420, -210], lmGate('stones', 6)] },
+  { id: 'lm-radar', kind: 'trail', width: 6, grade: 0.15, ctrl: [[-520, -1140], lmGate('radar', 6)] },
   { id: 'lm-sinkhole', kind: 'trail', width: 6, grade: 0.15, ctrl: [[1760, -1330], lmGate('sinkhole', SINK.rampRun)] },
   ...CABINS.map((c) => ({ id: 'ruts-' + c.id, kind: 'trail' as RoadKind, width: 3.4, grade: 0.3, bank: 4, ctrl: [c.from, ...c.via, [c.x + Math.sin(c.yaw) * 13, c.z + Math.cos(c.yaw) * 13] as P2] })),
 ];
@@ -125,7 +134,7 @@ export interface Pad { x: number; z: number; r: number; h: number }
  */
 const RG = 8, RN = Math.floor((HALF * 2) / RG) + 1;
 class Router {
-  h = new Float32Array(RN * RN); mult = new Float32Array(RN * RN); relief = new Float32Array(RN * RN);
+  h = new Float32Array(RN * RN); mult = new Float32Array(RN * RN); relief = new Float32Array(RN * RN); conf = new Float32Array(RN * RN);
   private g = new Float32Array(RN * RN * 16).fill(Infinity); private from = new Int32Array(RN * RN * 16).fill(-1); private closed = new Uint8Array(RN * RN * 16);
   private touched: number[] = [];
   private turn = new Float32Array(16 * 16);
@@ -151,9 +160,21 @@ class Router {
     }
     // relief: how far the real ground stands proud of (or sinks below) the planning surface = earthworks needed here
     for (let j = 0; j < RN; j++) for (let i = 0; i < RN; i++) { const k = j * RN + i; this.relief[k] = Math.max(0, Math.abs(sampleH(data.height, -HALF + i * RG, -HALF + j * RG) - this.h[k]) - 2.5); }
+    // confinement: ground rising steeply on BOTH sides within ~50 m (a slot, gully or ravine). Driving the bottom of one is
+    // a trench with no view, so slots cost extra; open valleys, hillsides and ridges don't.
+    const raw = (i: number, j: number) => sampleH(data.height, -HALF + i * RG, -HALF + j * RG);
+    for (let j = 6; j < RN - 6; j++) for (let i = 6; i < RN - 6; i++) {
+      const c = raw(i, j); let conf = 0;
+      for (const [di, dj] of [[1, 0], [0, 1], [1, 1], [1, -1]]) {
+        let a = -1e9, b = -1e9;
+        for (const s of [2, 4, 6]) { a = Math.max(a, raw(i + di * s, j + dj * s) - c); b = Math.max(b, raw(i - di * s, j - dj * s) - c); }
+        conf = Math.max(conf, Math.min(a, b));
+      }
+      this.conf[j * RN + i] = Math.max(0, conf - 10);
+    }
   }
   /** A* over (node, heading) states: a turning cost makes it build long switchback legs with real hairpins. */
-  route(a: P2, b: P2, gmax: number, inHeading?: number): P2[] {
+  route(a: P2, b: P2, gmax: number, inHeading?: number, corridor = 260): P2[] {
     const node = (p: P2) => clamp(Math.round((p[1] + HALF) / RG), 0, RN - 1) * RN + clamp(Math.round((p[0] + HALF) / RG), 0, RN - 1);
     const s0 = node(a), t = node(b), ti = t % RN, tj = (t / RN) | 0;
     const ND = 16;
@@ -169,10 +190,10 @@ class Router {
     for (let x = 0; x < ND; x++) for (let y = 0; y < ND; y++) { let d = Math.abs(D[x][3] - D[y][3]); if (d > Math.PI) d = 2 * Math.PI - d; turn[x * ND + y] = d < 0.5 ? 2 + d * 14 : Infinity; }   // ≤ ~25° per step: hairpins keep a ~20 m radius
     const DI = new Int32Array(ND), DJ = new Int32Array(ND), DL = new Float32Array(ND);
     for (let d = 0; d < ND; d++) { DI[d] = D[d][0]; DJ[d] = D[d][1]; DL[d] = D[d][2]; }
-    const H = this.h, M = this.mult, REL = this.relief, G = this.g, F = this.from, C = this.closed, ht = H[t], inv = 1 / gmax;
+    const H = this.h, M = this.mult, REL = this.relief, CF = this.conf, G = this.g, F = this.from, C = this.closed, ht = H[t], inv = 1 / gmax;
     // stay within a corridor around the leg: no kilometre-long detours through neighbouring valleys
     const ax = (a[0] + HALF) / RG, az = (a[1] + HALF) / RG, bx = (b[0] + HALF) / RG, bz = (b[1] + HALF) / RG;
-    const lx = bx - ax, lz = bz - az, l2 = lx * lx + lz * lz || 1, corr = Math.max(260, 0.45 * Math.sqrt(l2) * RG) / RG;
+    const lx = bx - ax, lz = bz - az, l2 = lx * lx + lz * lz || 1, corr = Math.max(corridor, 0.45 * Math.sqrt(l2) * RG) / RG;
     const inCorr = (i: number, j: number) => { let u = ((i - ax) * lx + (j - az) * lz) / l2; u = u < 0 ? 0 : u > 1 ? 1 : u; const dx = ax + lx * u - i, dz = az + lz * u - j; return dx * dx + dz * dz < corr * corr; };
     for (let d = 0; d < ND; d++) {
       // continue the previous leg's heading through a waypoint (no kinks where two legs meet)
@@ -197,7 +218,7 @@ class Router {
         if (C[ns]) continue;
         const L = DL[nd], dh = H[n] - hc, gr = (dh < 0 ? -dh : dh) / L;
         const over = gr > gmax ? (gr - gmax) * inv : 0;
-        const ng = gc + L * (1 + 0.5 * gr * inv + (over > 0 ? 3 + 30 * over * over : 0) + 0.12 * REL[n]) * M[n] + tc;
+        const ng = gc + L * (1 + 0.5 * gr * inv + (over > 0 ? 3 + 30 * over * over : 0) + 0.12 * REL[n] + 0.16 * CF[n]) * M[n] + tc;
         if (ng < G[ns]) {
           if (G[ns] === Infinity) this.touched.push(ns);
           G[ns] = ng; F[ns] = cs;
@@ -207,7 +228,7 @@ class Router {
       }
     }
     if ((globalThis as { process?: { env: Record<string, string> } }).process?.env?.ROUTE_DEBUG) console.log('route', a.map(Math.round), b.map(Math.round), end < 0 ? 'FAILED' : 'ok', iter);
-    if (end < 0) return inHeading !== undefined ? this.route(a, b, gmax) : gmax < 0.5 ? this.route(a, b, gmax * 1.6) : [a, b];
+    if (end < 0) return inHeading !== undefined ? this.route(a, b, gmax, undefined, corridor) : gmax < 0.5 ? this.route(a, b, gmax * 1.6, undefined, corridor) : [a, b];
     const out: P2[] = [];
     for (let st = end; st !== -1 && out.length < 100000; st = this.from[st]) { const n = (st / ND) | 0; out.push([-HALF + (n % RN) * RG, -HALF + ((n / RN) | 0) * RG]); }
     out.reverse();
@@ -245,37 +266,42 @@ function noFillMask(data: WorldData): Uint8Array {
  * wall with sheer drops on either side, wherever it runs.
  */
 const EW_NOISE = new Simplex(4242);
-function earthworks(H: Float32Array, core: Float32Array, noFill: Uint8Array) {
-  const n = V * V, lo = new Float32Array(n), hi = new Float32Array(n);
-  for (let k = 0; k < n; k++) { const c = core[k]; if (c === c) { lo[k] = c; hi[k] = c; } else { lo[k] = -1e9; hi[k] = 1e9; } }
-  const SF = 0.4, SC = 2.0;
-  const fa = SF * CELL, fb = SF * CELL * Math.SQRT2, ca = SC * CELL, cb = SC * CELL * Math.SQRT2;
-  // two-pass chamfer propagation (unrolled: this runs over 6.5 M cells)
+function earthworks(H: Float32Array, core: Float32Array, noFill: Uint8Array, noEmbank?: Uint8Array): Float32Array {
+  const n = V * V, hi = new Float32Array(n);
+  // fills: every cell remembers the road height and distance of the embankment that constrains it. The batter starts at
+  // 1:2.5 at the road and steepens with distance, so an embankment stays local instead of fanning out for hundreds of metres
+  // over everything below it (that is what walled lower switchback legs in, and buried the lake).
+  const srcC = new Float32Array(n), srcD = new Float32Array(n), lo = new Float32Array(n);
+  const fill = (d: number) => 0.4 * d + 0.012 * d * d;
+  for (let k = 0; k < n; k++) { const c = core[k]; if (c === c) { srcC[k] = noEmbank?.[k] ? -1e9 : c; hi[k] = c; } else { srcC[k] = -1e9; hi[k] = 1e9; } srcD[k] = 0; lo[k] = srcC[k]; }
+  const SC = 2.0, ca = SC * CELL, cb = SC * CELL * Math.SQRT2, sa = CELL, sb = CELL * Math.SQRT2;
+  const offer = (k: number, q: number, step: number) => { const c = srcC[q]; if (c < -1e8) return; const d = srcD[q] + step, v = c - fill(d); if (v > lo[k]) { lo[k] = v; srcC[k] = c; srcD[k] = d; } };
+  // two-pass chamfer propagation (6.5 M cells)
   for (let pass = 0; pass < 2; pass++) {
     for (let j = 0; j < V; j++) {
       const row = j * V, up = row - V;
       for (let i = 0; i < V; i++) {
-        const k = row + i; let l = lo[k], h = hi[k], q: number;
-        if (i > 0) { q = k - 1; if (lo[q] - fa > l) l = lo[q] - fa; if (hi[q] + ca < h) h = hi[q] + ca; }
+        const k = row + i; let h = hi[k], q: number;
+        if (i > 0) { q = k - 1; offer(k, q, sa); if (hi[q] + ca < h) h = hi[q] + ca; }
         if (j > 0) {
-          q = up + i; if (lo[q] - fa > l) l = lo[q] - fa; if (hi[q] + ca < h) h = hi[q] + ca;
-          if (i > 0) { q = up + i - 1; if (lo[q] - fb > l) l = lo[q] - fb; if (hi[q] + cb < h) h = hi[q] + cb; }
-          if (i < V - 1) { q = up + i + 1; if (lo[q] - fb > l) l = lo[q] - fb; if (hi[q] + cb < h) h = hi[q] + cb; }
+          q = up + i; offer(k, q, sa); if (hi[q] + ca < h) h = hi[q] + ca;
+          if (i > 0) { q = up + i - 1; offer(k, q, sb); if (hi[q] + cb < h) h = hi[q] + cb; }
+          if (i < V - 1) { q = up + i + 1; offer(k, q, sb); if (hi[q] + cb < h) h = hi[q] + cb; }
         }
-        lo[k] = l; hi[k] = h;
+        hi[k] = h;
       }
     }
     for (let j = V - 1; j >= 0; j--) {
       const row = j * V, dn = row + V;
       for (let i = V - 1; i >= 0; i--) {
-        const k = row + i; let l = lo[k], h = hi[k], q: number;
-        if (i < V - 1) { q = k + 1; if (lo[q] - fa > l) l = lo[q] - fa; if (hi[q] + ca < h) h = hi[q] + ca; }
+        const k = row + i; let h = hi[k], q: number;
+        if (i < V - 1) { q = k + 1; offer(k, q, sa); if (hi[q] + ca < h) h = hi[q] + ca; }
         if (j < V - 1) {
-          q = dn + i; if (lo[q] - fa > l) l = lo[q] - fa; if (hi[q] + ca < h) h = hi[q] + ca;
-          if (i < V - 1) { q = dn + i + 1; if (lo[q] - fb > l) l = lo[q] - fb; if (hi[q] + cb < h) h = hi[q] + cb; }
-          if (i > 0) { q = dn + i - 1; if (lo[q] - fb > l) l = lo[q] - fb; if (hi[q] + cb < h) h = hi[q] + cb; }
+          q = dn + i; offer(k, q, sa); if (hi[q] + ca < h) h = hi[q] + ca;
+          if (i < V - 1) { q = dn + i + 1; offer(k, q, sb); if (hi[q] + cb < h) h = hi[q] + cb; }
+          if (i > 0) { q = dn + i - 1; offer(k, q, sb); if (hi[q] + cb < h) h = hi[q] + cb; }
         }
-        lo[k] = l; hi[k] = h;
+        hi[k] = h;
       }
     }
   }
@@ -303,6 +329,153 @@ function earthworks(H: Float32Array, core: Float32Array, noFill: Uint8Array) {
       H[k] = (tmp[k] * 4 + tmp[k - 1] + tmp[k + 1] + tmp[k - V] + tmp[k + V]) / 8;
     }
   }
+  return lo;
+}
+
+/**
+ * Lookout Peak: re-lay the mountain's flanks through the finished summit road, so the slope between one switchback leg and
+ * the next is a smooth hillside (no cut-and-fill crevices, no gullies), easing back into the natural rock away from the road.
+ */
+function fitPeak(H: Float32Array, r: Road | undefined, core: Float32Array, others: Road[]) {
+  if (!r) return;
+  // other roads' samples nearby: the fit fades out well before it reaches them
+  const R1 = PEAK.rFace + 200, oth: P2[] = [];
+  for (const o of others) if (o !== r) for (let i = 0; i < o.pts.length; i += 3) if (Math.hypot(o.pts[i][0] - PEAK.x, o.pts[i][1] - PEAK.z) < R1) oth.push(o.pts[i]);
+  const S = 4, sx: number[] = [], sz: number[] = [], sh: number[] = [], top = r.h[r.h.length - 1];
+  for (let i = 0; i < r.pts.length; i += S) { sx.push(r.pts[i][0]); sz.push(r.pts[i][1]); sh.push(r.h[i]); }
+  // bucket the samples (32 m cells) for neighbour search
+  const B = 32, buckets = new Map<number, number[]>();
+  const bk = (x: number, z: number) => Math.floor((x + HALF) / B) * 4096 + Math.floor((z + HALF) / B);
+  sx.forEach((x, k) => { const q = bk(x, sz[k]); let a = buckets.get(q); if (!a) buckets.set(q, (a = [])); a.push(k); });
+  const REACH = 110, RB = Math.ceil(REACH / B);
+  const R0 = PEAK.rFace + 40;
+  for (let j = Math.floor((PEAK.z - R0 + HALF) / CELL); j <= Math.ceil((PEAK.z + R0 + HALF) / CELL); j++) for (let i = Math.floor((PEAK.x - R0 + HALF) / CELL); i <= Math.ceil((PEAK.x + R0 + HALF) / CELL); i++) {
+    if (i < 0 || j < 0 || i >= V || j >= V) continue;
+    const k = j * V + i; if (core[k] === core[k]) continue;
+    const x = -HALF + i * CELL, z = -HALF + j * CELL;
+    const dp = Math.hypot(x - PEAK.x, z - PEAK.z);
+    if (dp < PEAK.plateau) { H[k] = top + 0.3 * EW_NOISE.fbm(x / 20, z / 20, 2); continue; }   // the summit is level with where the road arrives
+    const bi = Math.floor((x + HALF) / B), bj = Math.floor((z + HALF) / B);
+    let sw = 0, swh = 0, dmin = 1e9;
+    for (let a = -RB; a <= RB; a++) for (let b = -RB; b <= RB; b++) {
+      const list = buckets.get((bi + a) * 4096 + bj + b); if (!list) continue;
+      for (const s of list) { const d2 = (sx[s] - x) ** 2 + (sz[s] - z) ** 2; if (d2 > REACH * REACH) continue; const d = Math.sqrt(d2); if (d < dmin) dmin = d; const w = 1 / (d2 * d + 300); sw += w; swh += w * sh[s]; }
+    }
+    if (!sw) { const rim = 1 - smoothstep(PEAK.plateau, PEAK.plateau + 30, dp); if (rim > 0) H[k] += (top - H[k]) * rim; continue; }
+    // the fitted surface owns the ground between the legs; toward the reach it hands back to the natural slope
+    const foot = peakFoot(x, z).R;
+    let b = (1 - smoothstep(45, REACH, dmin)) * (1 - smoothstep(foot - 80, foot, dp));
+    for (const l of LAKES) b *= smoothstep(l.r + 30, l.r + 120, Math.hypot(x - l.x, z - l.z));
+    if (b <= 0) { const rim = 1 - smoothstep(PEAK.plateau, PEAK.plateau + 30, dp); if (rim > 0) H[k] += (top - H[k]) * rim; continue; }
+    let dOther = 1e9; for (const q of oth) { const d2 = (q[0] - x) ** 2 + (q[1] - z) ** 2; if (d2 < dOther) dOther = d2; }
+    b *= smoothstep(30, 90, Math.sqrt(dOther));
+    if (b <= 0) continue;
+    const t = swh / sw, nn = EW_NOISE.fbm(x / 50 + 3, z / 50 - 9, 3);
+    H[k] = H[k] + (t + 1.2 * nn + clamp((H[k] - t) * 0.12, -3, 3) - H[k]) * b;
+    // and the rim of the summit eases down from the plateau (only away from the road, which shapes its own approach)
+    const rim = (1 - smoothstep(PEAK.plateau, PEAK.plateau + 24, dp)) * smoothstep(20, 45, dmin);
+    if (rim > 0) H[k] = Math.min(H[k] + (top - H[k]) * rim, top + 0.4);
+  }
+}
+
+/**
+ * Stacked switchbacks: where two legs of road (or two roads) at clearly different heights pass within ~60 m of each other,
+ * the ground between them is re-laid as one smooth slope from bench to bench (inverse-distance blend of the road heights),
+ * instead of the upper leg's embankment and the lower leg's cutting fighting over it and walling the lower one in.
+ */
+function benchLegs(H: Float32Array, roads: Road[], core: Float32Array, noFill: Uint8Array) {
+  const sx: number[] = [], sz: number[] = [], sh: number[] = [], sr: number[] = [], si: number[] = [];
+  roads.forEach((r, ri) => { if (r.fixed || r.earth === false || r.id === 'summit-road') return; for (let i = 0; i < r.pts.length; i += 4) { if (r.bridged[i]) continue; sx.push(r.pts[i][0]); sz.push(r.pts[i][1]); sh.push(r.h[i]); sr.push(ri); si.push(i); } });
+  const B = 32, buckets = new Map<number, number[]>(), key = (x: number, z: number) => Math.floor((x + HALF) / B) * 4096 + Math.floor((z + HALF) / B);
+  sx.forEach((x, k) => { const q = key(x, sz[k]); let a = buckets.get(q); if (!a) buckets.set(q, (a = [])); a.push(k); });
+  const REACH = 60, cand = new Uint8Array(V * V), R = Math.ceil(REACH / CELL);
+  // candidate cells: near a sample that has a different leg at another height close by
+  for (let k = 0; k < sx.length; k++) {
+    let stacked = false;
+    for (let a = -2; a <= 2 && !stacked; a++) for (let b = -2; b <= 2 && !stacked; b++) for (const o of buckets.get(key(sx[k], sz[k]) + a * 4096 + b) ?? []) {
+      const dd = Math.hypot(sx[o] - sx[k], sz[o] - sz[k]);
+      if (dd > 70 || Math.abs(sh[o] - sh[k]) < 8 || (sr[o] === sr[k] && Math.abs(si[o] - si[k]) * 3 < 2.2 * dd + 30)) continue;
+      stacked = true; break;
+    }
+    if (!stacked) continue;
+    const ci = Math.round((sx[k] + HALF) / CELL), cj = Math.round((sz[k] + HALF) / CELL);
+    for (let dj = -R; dj <= R; dj++) for (let di = -R; di <= R; di++) { const ii = ci + di, jj = cj + dj; if (ii >= 0 && jj >= 0 && ii < V && jj < V && di * di + dj * dj <= R * R) cand[jj * V + ii] = 1; }
+  }
+  for (let j = 0; j < V; j++) for (let i = 0; i < V; i++) {
+    const k = j * V + i; if (!cand[k] || core[k] === core[k] || noFill[k]) continue;
+    const x = -HALF + i * CELL, z = -HALF + j * CELL, bi = Math.floor((x + HALF) / B), bj = Math.floor((z + HALF) / B);
+    let sw = 0, swh = 0, d0 = 1e9, n0 = -1;
+    for (let a = -2; a <= 2; a++) for (let b = -2; b <= 2; b++) for (const o of buckets.get((bi + a) * 4096 + bj + b) ?? []) {
+      const d2 = (sx[o] - x) ** 2 + (sz[o] - z) ** 2; if (d2 > REACH * REACH) continue;
+      if (d2 < d0) { d0 = d2; n0 = o; }
+      const w = 1 / (d2 * Math.sqrt(d2) + 200); sw += w; swh += w * sh[o];
+    }
+    if (n0 < 0) continue;
+    // only between legs: there must be another leg (different stretch, other height) within reach on the far side
+    let d1 = 1e9;
+    for (let a = -2; a <= 2; a++) for (let b = -2; b <= 2; b++) for (const o of buckets.get((bi + a) * 4096 + bj + b) ?? []) {
+      const dd = Math.hypot(sx[o] - sx[n0], sz[o] - sz[n0]);
+      if (Math.abs(sh[o] - sh[n0]) < 8 || (sr[o] === sr[n0] && Math.abs(si[o] - si[n0]) * 3 < 2.2 * dd + 30)) continue;
+      const d2 = (sx[o] - x) ** 2 + (sz[o] - z) ** 2; if (d2 < d1) d1 = d2;
+    }
+    if (d1 > REACH * REACH) continue;
+    const b = 1 - smoothstep(30, REACH, Math.sqrt(d1));
+    const t = swh / sw + 0.8 * EW_NOISE.fbm(x / 30 + 1, z / 30, 2);
+    H[k] += (t - H[k]) * b;
+  }
+}
+
+/**
+ * Open up slots: wherever a road runs with high ground close on BOTH sides (a deep cutting or a ravine floor) the flanks are
+ * laid back to a gentle, concave batter, so it reads as a broad pass with a view instead of a trench. One-sided
+ * slopes (hillside benches, switchback stacks, pit spirals) are left alone, as are canyon/river cells and other roads.
+ */
+function openCuttings(H: Float32Array, roads: Road[], core: Float32Array, noFill: Uint8Array, fillLimit: Float32Array) {
+  const at = (x: number, z: number) => sampleH(H, x, z);
+  const REACH = 190;
+  // concave batter: gentle at the road (1:2.4), steepening with distance so it always runs back into the hills, never a step
+  const batter = (u: number) => 0.28 * u + 0.0065 * u * u;
+  const stamps: [number, number, number, number][] = [];   // x, z, road height, half width
+  for (const r of roads) {
+    if (r.fixed || r.earth === false) continue;
+    const half = r.width / 2, n = r.pts.length;
+    const flag = new Uint8Array(n);
+    for (let i = 1; i < n - 1; i++) {
+      if (r.bridged[i]) continue;
+      const [x, z] = r.pts[i], a = r.pts[i - 1], b = r.pts[i + 1];
+      if (LANDMARKS.some((l) => Math.hypot(x - l.x, z - l.z) < l.r + 30) || PITS.some((p) => Math.hypot(x - p.x, z - p.z) < p.r + 20)) continue;
+      let tx = b[0] - a[0], tz = b[1] - a[1]; const l = Math.hypot(tx, tz) || 1; tx /= l; tz /= l;
+      let L = -1e9, R = -1e9;
+      for (const o of [10, 25, 45]) { L = Math.max(L, at(x - tz * (half + o), z + tx * (half + o))); R = Math.max(R, at(x + tz * (half + o), z - tx * (half + o))); }
+      if (Math.min(L, R) - r.h[i] > 9) flag[i] = 1;
+    }
+    // grow the flagged stretches a little so the opened valley eases in and out
+    for (let i = 0; i < n; i++) if (flag[i] === 1) for (let k = Math.max(0, i - 12); k <= Math.min(n - 1, i + 12); k++) if (!flag[k] && !r.bridged[k]) flag[k] = 2;
+    for (let i = 0; i < n; i += 2) if (flag[i]) stamps.push([r.pts[i][0], r.pts[i][1], r.h[i], half]);
+  }
+  if (!stamps.length) return;
+  const R = Math.ceil(REACH / CELL);
+  const lower = new Float32Array(V * V).fill(Infinity);
+  for (const [x, z, h, half] of stamps) {
+    const ci = Math.round((x + HALF) / CELL), cj = Math.round((z + HALF) / CELL);
+    for (let dj = -R; dj <= R; dj++) for (let di = -R; di <= R; di++) {
+      const ii = ci + di, jj = cj + dj; if (ii < 0 || jj < 0 || ii >= V || jj >= V) continue;
+      const d = Math.hypot(di, dj) * CELL; if (d > REACH) continue;
+      const k = jj * V + ii;
+      const t = h + batter(Math.max(0, d - half - 3));
+      if (t < lower[k]) lower[k] = t;
+    }
+  }
+  let moved = 0;
+  for (let j = 0; j < V; j++) for (let i = 0; i < V; i++) {
+    const k = j * V + i, t = Math.max(lower[k], fillLimit[k] - 5);
+    if (lower[k] === Infinity || core[k] === core[k] || noFill[k] || H[k] <= t) continue;
+    // keep a quarter of the old relief (no machined batters), and fade out toward the edge of the reach
+    const x = -HALF + i * CELL, z = -HALF + j * CELL;
+    const nn = 0.5 + 0.5 * EW_NOISE.fbm(x / 60 + 7, z / 60, 3);
+    H[k] = t + Math.min((H[k] - t) * (0.18 + 0.14 * nn), 1.5 + 3 * nn); moved++;
+  }
+  void moved;
 }
 
 export function buildRoads(data: WorldData, pads: Pad[] = []): { roads: Road[]; bridges: Bridge[]; roadMask: Uint8Array; roadKind: Uint8Array } {
@@ -353,7 +526,7 @@ export function buildRoads(data: WorldData, pads: Pad[] = []): { roads: Road[]; 
         const a = ctrl[k], b = ctrl[k + 1];
         let hd: number | undefined;
         if (path.length >= 3) { const p1 = path[path.length - 1], p0 = path[path.length - 3]; hd = Math.atan2(p1[1] - p0[1], p1[0] - p0[0]); }
-        const leg = Math.hypot(b[0] - a[0], b[1] - a[1]) < 80 ? [a, b] : router.route(a, b, def.grade * 0.85, hd);
+        const leg = Math.hypot(b[0] - a[0], b[1] - a[1]) < 80 ? [a, b] : router.route(a, b, def.grade * 0.85, hd, def.corridor);
         for (let i = 1; i < leg.length; i++) path.push(leg[i]);
       }
     }
@@ -366,6 +539,12 @@ export function buildRoads(data: WorldData, pads: Pad[] = []): { roads: Road[]; 
           const q = out[k], arc = (out.length - 1 - k) * 8;
           if (arc > 36 && Math.hypot(q[0] - path[i][0], q[1] - path[i][1]) < 14) { out.length = k + 1; out.push(path[i]); break; }
         }
+      }
+      // and knock out cusps (a short spike out and straight back, too short for the loop test above)
+      for (let pass = 0; pass < 4; pass++) for (let i = 1; i < out.length - 1; i++) {
+        const a = out[i - 1], b = out[i], c = out[i + 1];
+        const ux = b[0] - a[0], uz = b[1] - a[1], vx = c[0] - b[0], vz = c[1] - b[1];
+        if (ux * vx + uz * vz < -0.2 * Math.hypot(ux, uz) * Math.hypot(vx, vz)) { out.splice(i, 1); i--; }
       }
       path = out;
     }
@@ -387,6 +566,7 @@ export function buildRoads(data: WorldData, pads: Pad[] = []): { roads: Road[]; 
     for (const idx of [0, n - 1]) { const h = nearRoad(pts[idx][0], pts[idx][1], 10); if (h !== null) pin[idx] = h; }
     for (let i = 1; i < n - 1; i++) { const h = nearRoad(pts[i][0], pts[i][1], 4.5); if (h !== null) pin[i] = h; }
     for (const p of pads) for (let i = 0; i < n; i++) if (Math.hypot(pts[i][0] - p.x, pts[i][1] - p.z) < p.r - 2) pin[i] = p.h;
+    if (def.pinEnd) pin[n - 1] = raw[n - 1];   // arrive level with the summit, not in a cutting below it
     for (const b of bridges) for (const [e, h] of [[b.a, b.ha], [b.b, b.hb]] as [P2, number][]) {
       if (Math.hypot(pts[0][0] - e[0], pts[0][1] - e[1]) < 4) pin[0] = h;
       if (Math.hypot(pts[n - 1][0] - e[0], pts[n - 1][1] - e[1]) < 4) pin[n - 1] = h;
@@ -487,7 +667,7 @@ export function buildRoads(data: WorldData, pads: Pad[] = []): { roads: Road[]; 
     if (!g.main) {
       let bestS = 1e9, place: { x: number; z: number; yaw: number } | null = null;
       let road: Road | null = null, i0 = 0, bd = 1e9;
-      for (const r of roads) { if (r.id.startsWith('ruts-') || r.id.startsWith('drive-') || r.fixed && r.id !== 'mx-track') continue; r.pts.forEach((p, i) => { if (r.bridged[i]) return; const d = Math.hypot(p[0] - g.x, p[1] - g.z); if (d < bd) { bd = d; road = r; i0 = i; } }); }
+      for (const r of roads) { if (r.id.startsWith('ruts-') || r.id.startsWith('drive-') || r.id === 'summit-road' || r.fixed && r.id !== 'mx-track') continue; r.pts.forEach((p, i) => { if (r.bridged[i]) return; const d = Math.hypot(p[0] - g.x, p[1] - g.z); if (d < bd) { bd = d; road = r; i0 = i; } }); }
       const rd = road as Road | null;
       if (rd) {
         const off = rd.width / 2 + 4 + 26 + 7;   // the level pad (r 26, centred 7 m in front of the doors) stays clear of the road
@@ -520,7 +700,15 @@ export function buildRoads(data: WorldData, pads: Pad[] = []): { roads: Road[]; 
     addRoad({ id: 'drive-' + g.id, kind: g.main ? 'asphalt' : 'dirt', width: g.main ? 10 : 8, grade: 0.16, fixed: true, ctrl: [A, P] });
   }
   void samples;
-  earthworks(data.height, core, noFill);
+  // then open up slots (never below any road's embankment, so switchback legs stay supported), and fit Lookout Peak's
+  // face (steeper than a fill batter) to its road
+  // Lookout Peak's road builds no embankments (its face is steeper than a fill batter; fitPeak shapes its shoulders)
+  const noEmbank = new Uint8Array(V * V), sr = roads.find((r) => r.id === 'summit-road');
+  if (sr) for (const [x, z] of sr.pts) { const ci = Math.round((x + HALF) / CELL), cj = Math.round((z + HALF) / CELL), R = Math.ceil((sr.width / 2 + 3) / CELL); for (let dj = -R; dj <= R; dj++) for (let di = -R; di <= R; di++) { const ii = ci + di, jj = cj + dj; if (ii >= 0 && jj >= 0 && ii < V && jj < V) noEmbank[jj * V + ii] = 1; } }
+  const fillLimit = earthworks(data.height, core, noFill, noEmbank);
+  openCuttings(data.height, roads, core, noFill, fillLimit);
+  benchLegs(data.height, roads, core, noFill);
+  fitPeak(data.height, roads.find((r) => r.id === 'summit-road'), core, roads);
   // blend junctions: where independently graded roads meet, relax the heights over the road + shoulder cells
   {
     const H = data.height, mask = new Uint8Array(V * V);

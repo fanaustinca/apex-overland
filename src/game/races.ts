@@ -3,7 +3,7 @@
 // finish are close together (lake slalom, MX track) are `strict`: their gates must be taken in order.
 import { SUMMIT, type Road } from '../world/roads';
 import type { P2 } from '../world/layout';
-import { canyonZ as cz, OFFROAD, LAKES } from '../world/layout';
+import { canyonZ as cz, OFFROAD, LAKES, PEAK } from '../world/layout';
 import { resample } from '../world/gen';
 
 export interface RaceDef { id: string; name: string; biome: number | 'marathon'; desc: string; reward: number; path: P2[]; alts: P2[][]; cps: P2[]; rivals: number; strict: boolean; rem: Float32Array; len: number }
@@ -106,6 +106,14 @@ export function buildRaces(roads: Road[], rivers: RiverLike[] = []): RaceDef[] {
     for (let t = 0; t <= 1.5; t += 0.004) { const a = -Math.PI / 2 + t * Math.PI * 2, r = lake.r - 55 + 22 * Math.sin(t * Math.PI * 2 * 5); line.push([lake.x + Math.cos(a) * r, lake.z - Math.sin(a) * r]); }
     add('frozen-lake', 'Frozen Lake Drift', 2, 'Ice racing on the frozen lake: a slalom ring, one and a half laps, every gate counts. Spikes or sideways.', 2700,
       B([line]), 260, { strict: true, rivals: 3 });
+  }
+  if (roads.some((r) => r.id === 'summit-road')) {
+    // up the switchbacks from the lodge junction, once round the summit cairn, and all the way back down
+    const up = slice(roads, { r: 'summit-road' }), top = up[up.length - 1];
+    const a0 = Math.atan2(top[1] - PEAK.z, top[0] - PEAK.x), loop: P2[] = [];
+    for (let k = 0; k <= 48; k++) { const a = a0 + k / 48 * Math.PI * 2; loop.push([PEAK.x + Math.cos(a) * 17, PEAK.z + Math.sin(a) * 17]); }
+    add('lookout-hillclimb', 'Lookout Peak Hillclimb', 2, 'From the foot of Lookout Peak up every switchback to the summit, once round the cairn, then all the way back down. Every gate counts.', 3800,
+      B([up, loop, [...up].reverse()]), 320, { strict: true, rivals: 4 });
   }
   // ---------------- Industrial Quarry ----------------
   add('pit-escape', 'Pit Escape', 3, 'Start at the bottom of Pit A and spiral up the haul ramp to daylight and the hub.', 2400,

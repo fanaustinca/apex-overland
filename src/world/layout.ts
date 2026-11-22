@@ -34,11 +34,11 @@ function cz0(x: number) { return canyonZ(x); }
 export interface Pass { id: string; pts: P2[]; floor: number; slope: number; smooth: number; maxH?: number }
 export const PASSES: Pass[] = [
   // north-west: from the peak-descent foot over the shoulder into the lowland where the Pass Hut sits
-  { id: 'alpine', pts: [[-694, -950], [-880, -1060], [-1100, -1120], [-1350, -1210], [-1600, -1300]], floor: 16, slope: 0.75, smooth: 220 },
+  { id: 'alpine', pts: [[-694, -950], [-880, -1060], [-1100, -1120], [-1350, -1210], [-1600, -1300]], floor: 16, slope: 0.55, smooth: 220 },
   // the hidden high valley above the Pass Hut (barn-find trail)
-  { id: 'outpost', pts: [[-1600, -1300], [-1630, -1500], [-1600, -1700], [-1480, -1860]], floor: 9, slope: 0.8, smooth: 160 },
+  { id: 'outpost', pts: [[-1600, -1300], [-1630, -1500], [-1600, -1700], [-1480, -1860]], floor: 9, slope: 0.58, smooth: 160 },
   // north-east: from the Ridgeback lowland up to the frozen lake
-  { id: 'lake', pts: [[1760, -1330], [1600, -1470], [1440, -1620], [1290, -1730]], floor: 16, slope: 0.7, smooth: 220 },
+  { id: 'lake', pts: [[1760, -1330], [1600, -1470], [1440, -1620], [1290, -1730]], floor: 16, slope: 0.55, smooth: 220 },
 ];
 
 /** Lakes: flattened basins. Frozen ones are ice sheets (snow-white, ice physics). */
@@ -71,7 +71,10 @@ export const GARAGES = [
 ];
 
 /** Landmarks: set-piece terrain (and props) out in the open country, worth a detour. Discovering one pays out. */
-export type LandmarkKind = 'crater' | 'boneyard' | 'hoodoos' | 'stunt' | 'sinkhole';
+export type LandmarkKind = 'crater' | 'boneyard' | 'hoodoos' | 'stunt' | 'sinkhole' | 'summit' | 'shipwreck' | 'stones' | 'radar';
+/** Lookout Peak: a lone summit above the Icefield Lodge. Its broad south-west face (bearing `face`) carries the summit road
+ *  up in switchbacks; the other flanks are steep and rugged. Flat-topped (radius `plateau`) for the viewing deck. */
+export const PEAK = { x: 1775, z: -2205, h: 440, plateau: 26, face: -0.84, rFace: 540, rBack: 350 };
 export interface Landmark { id: LandmarkKind; name: string; x: number; z: number; r: number; reward: number; blurb: string; dir: number }
 export const LANDMARKS: Landmark[] = [
   // dir: the bearing (radians, atan2(dx, dz)) of the way in: a trail, ramp or notch faces that way
@@ -79,6 +82,10 @@ export const LANDMARKS: Landmark[] = [
   { id: 'boneyard', name: 'Aircraft Boneyard', x: -1930, z: 1240, r: 120, reward: 1200, dir: 0, blurb: 'A crashed cargo plane and its scrapped cousins. The broken wing is a ramp.' },
   { id: 'hoodoos', name: 'Hoodoo Garden', x: -330, z: 1360, r: 140, reward: 1200, dir: 0, blurb: 'Rock spires, balanced caprocks and a natural arch you can drive through.' },
   { id: 'stunt', name: 'Stunt Park', x: 470, z: -380, r: 115, reward: 1000, dir: 0, blurb: 'Kickers, tabletops, a bowl and a container gap. Send it.' },
+  { id: 'summit', name: 'Lookout Peak', x: PEAK.x, z: PEAK.z, r: PEAK.plateau, reward: 2000, dir: PEAK.face, blurb: 'A viewing deck 440 m up, over the frozen lake. Wind your way up from the Icefield Lodge.' },
+  { id: 'shipwreck', name: 'Desert Shipwreck', x: -880, z: 2130, r: 62, reward: 1400, dir: Math.PI, blurb: 'An old three-master stranded in the dune sea, half buried. The dune bank runs right up onto her deck.' },
+  { id: 'stones', name: 'Standing Stones', x: 1350, z: -420, r: 46, reward: 1100, dir: 0.32, blurb: 'A ring of mossy monoliths deep in the woods, with two great trilithon gates to drive through.' },
+  { id: 'radar', name: 'Radar Station', x: -850, z: -1400, r: 56, reward: 1500, dir: 0.9, blurb: 'Abandoned early-warning station on a snowy hilltop: radomes, a giant dish and the best view of Mount Apex.' },
   { id: 'sinkhole', name: 'The Sinkhole', x: 1910, z: -1640, r: 72, reward: 1800, dir: -0.45, blurb: 'A 35 m deep cenote with a turquoise pool. One ramp down, one way out.' },
 ];
 

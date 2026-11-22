@@ -21,6 +21,7 @@ export interface VehicleDef {
   torque?: number;                                    // low-speed / climbing pull multiplier (flat-ground acceleration is unchanged)
   arb?: number;                                       // anti-roll bar stiffness (x mass g per metre of left/right suspension difference)
   stab?: number;                                      // yaw stability: caps yaw rate near what the steering asks for (0 = free to drift)
+  cling?: number;                                     // tyre adhesion on steep ground (x mass g pressed into the slope at full steepness): wall-climbing
 }
 
 /** The Snake: six single-axle segments on five articulation joints (hinge GAP metres apart, module ends to hinge = GAP/2). */
@@ -57,10 +58,10 @@ export const VEHICLES: VehicleDef[] = [
     mass: 2450, power: 275, top: 45, len: 5.6, wid: 2.0, hgt: 1.85, ride: 0.28, wheelR: 0.46, wheelW: 0.3,
     wheels: [...axle(1.85, 0.88, 1), ...axle(-1.75, 0.88, 0)],
     susp: { rest: 0.58, travel: 0.42, stiff: 28, damp: 2.8 }, grip: 1.36, steerMax: 0.5, color: '#b3261e', color2: '#1d1d1d', plowable: false, heavy: false, intake: 1.0 },
-  { id: 'sixbysix', name: '6x6 Offroad', cls: 'Heavyweight', body: 'sixbysix', price: 24000, blurb: 'Three axles of traction. Shrugs off mud and steps.',
+  { id: 'sixbysix', name: '6x6 Luxury Wagon', cls: 'Heavyweight', body: 'sixbysix', price: 24000, blurb: 'A boxy V8 luxury wagon stretched onto a tandem rear axle: portal axles, side pipes and three axles of traction.',
     mass: 4800, power: 420, top: 39, len: 6.4, wid: 2.25, hgt: 2.3, ride: 0.32, wheelR: 0.55, wheelW: 0.36,
     wheels: [...axle(2.2, 0.98, 1), ...axle(-0.9, 0.98, 0), ...axle(-2.3, 0.98, -0.25)],
-    susp: { rest: 0.65, travel: 0.48, stiff: 28, damp: 2.9 }, grip: 1.43, steerMax: 0.45, color: '#6b6447', color2: '#5d5a3c', plowable: true, heavy: true, intake: 1.6 },
+    susp: { rest: 0.65, travel: 0.48, stiff: 28, damp: 2.9 }, grip: 1.43, steerMax: 0.45, color: '#b7a27a', color2: '#1c1c1c', plowable: true, heavy: true, intake: 1.6 },
   { id: 'dakar', name: 'Dakar Rally Truck', cls: 'Heavyweight', body: 'dakar', price: 32000, blurb: 'A 9-tonne race truck that thinks it is a buggy.',
     mass: 9000, power: 780, top: 45, len: 7.2, wid: 2.5, hgt: 3.0, ride: 0.4, wheelR: 0.66, wheelW: 0.42,
     wheels: [...axle(2.4, 1.05, 1), ...axle(-2.1, 1.05, 0)],
@@ -97,7 +98,7 @@ export const VEHICLES: VehicleDef[] = [
   { id: 'snake', name: 'THE SNAKE 12x12', cls: 'Secret', body: 'snake', special: 'snake', price: 0, blurb: 'Six single-axle segments on five hydraulic articulation joints: twelve driven wheels that slither over anything. Assembled from four barn finds.',
     mass: 2100, power: 520, top: 37, len: 1.95, wid: 2.3, hgt: 1.9, ride: 0.38, wheelR: 0.56, wheelW: 0.42,
     wheels: [...axle(0, 1.0, 1)],
-    susp: { rest: 0.7, travel: 0.55, stiff: 27, damp: 2.8 }, grip: 1.49, steerMax: 0.5, color: '#10261b', color2: '#1d3a28', plowable: true, heavy: true, intake: 2.2 },
+    susp: { rest: 0.7, travel: 0.55, stiff: 27, damp: 2.8 }, grip: 2.6, steerMax: 0.5, color: '#10261b', color2: '#1d3a28', plowable: true, heavy: true, intake: 2.2, torque: 3.2, cling: 1.6 },
 ];
 export const VEH = Object.fromEntries(VEHICLES.map((v) => [v.id, v])) as Record<string, VehicleDef>;
 

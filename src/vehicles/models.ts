@@ -16,7 +16,7 @@ export interface VehicleVisual {
   hinge?: { front?: THREE.Vector3; rear?: THREE.Vector3 };
 }
 
-interface Anch { hood: [number, number, number]; cab: [number, number, number, number]; front: number; rear: number; bumperY: number; lightY: number; exhaust: number[][]; stacks?: boolean; nosAt: number[]; snorkelZ: number; roofY: number; open?: boolean }
+interface Anch { hood: [number, number, number]; cab: [number, number, number, number]; front: number; rear: number; bumperY: number; lightY: number; exhaust: number[][]; stacks?: boolean; noStacks?: boolean; nosAt: number[]; snorkelZ: number; roofY: number; open?: boolean }
 
 const RIM_COLORS = [0xbfc3c8, 0x1c1c1e, 0xb08d57, 0x4a4d52];
 
@@ -30,7 +30,7 @@ export function buildVisual(d: VehicleDef, up: Upgrades, st: Stats, module = 0):
   const L = d.len, W = d.wid;
   const wz = d.wheels.map((w) => w.z);
   let a: Anch;
-  const style = ({ sedan: 'rally', buggy: 'rally', limo: 'stripe', crawler: 'band', suv: 'band', pickup: 'stripe', monster: 'rally', monster6: 'rally', sixbysix: 'camo', dakar: 'rally', semi: 'stripe', eightbyeight: 'camo', bus: 'plain', tank: 'camo', dump: 'plain', snake: 'snake', bike: 'rally' } as const)[d.body];
+  const style = ({ sedan: 'rally', buggy: 'rally', limo: 'stripe', crawler: 'band', suv: 'band', pickup: 'stripe', monster: 'rally', monster6: 'rally', sixbysix: 'plain', dakar: 'rally', semi: 'stripe', eightbyeight: 'camo', bus: 'plain', tank: 'camo', dump: 'plain', snake: 'snake', bike: 'rally' } as const)[d.body];
   const num = [8, 88, 0, 80, 18, 8, 11, 38, 0, 88, 8, 80, 0, 8, 88, 0][Math.abs(d.id.split('').reduce((a, ch) => a * 31 + ch.charCodeAt(0), 7)) % 16];
   const livTex = liveryTexture({ base: up.paint ?? d.color, accent: d.color2, style, num, L: L * 1.15, H: Math.max(1.2, d.hgt + 0.6) });
   const livery = dirtify(new THREE.MeshPhysicalMaterial({ map: livTex, metalness: 0.45, roughness: 0.28, clearcoat: 1, clearcoatRoughness: 0.04, envMapIntensity: 2.2 }), mats.dirt);
@@ -172,7 +172,7 @@ function upgradesVisual(c: Ctx, a: Anch, flames: THREE.Mesh[]) {
     box(body, s.chrome, bw * 0.8, 0.16, 0.3, 0, hy + 0.38, hz + 0.1, 0.04);
     for (const sd of [-1, 1]) cyl(body, s.chrome, 0.06, 0.06, sd * 0.12, hy + 0.48, hz + 0.1, 'y', 14);
     // big stacks
-    if (a.stacks || d.cls === 'Heavyweight' || d.cls === 'Juggernaut') {
+    if (!a.noStacks && (a.stacks || d.cls === 'Heavyweight' || d.cls === 'Juggernaut')) {
       for (const sd of [-1, 1]) {
         const x = sd * (W / 2 - 0.12), z = a.cab[1] - 0.15;
         cyl(body, s.chrome, 0.09, a.roofY + 0.6 - c.y0, x, (a.roofY + 0.6 + c.y0) / 2, z, 'y', 16);
@@ -426,25 +426,77 @@ function pickup(c: Ctx, monster: boolean, crew = false): Anch {
   return { hood: [2.0 * k, y0 + 1.06, 1.2 * k], cab: [-0.62 * k, 1.35 * k, y0 + 1.86, bw], front: 2.84 * k, rear: bz0 - 0.1, bumperY: y0 + 0.32, lightY: y0 + 0.78, exhaust: [[0.55, y0 + 0.15, bz0 - 0.1]], nosAt: [0, y0 + 0.68, -1.75 * k], snorkelZ: 1.3 * k, roofY: y0 + 1.86, stacks: monster };
 }
 
+let woodMat: THREE.MeshStandardMaterial | undefined;
+/** Six-wheel luxury off-roader: a boxy wagon cab (flat panels, upright screen, round lamps, slatted grille) on a tandem-axle pickup bed. */
 function sixbysix(c: Ctx): Anch {
   const { body, mats, s, W, y0, wz } = c;
-  const top: P[] = [[1.0, 0.12], [1.0, 2.2], [2.0, 2.25], [2.35, 1.45], [3.15, 1.35], [3.22, 0.75], [3.2, 0.12]];
   const ar = arches(c);
-  profileBody(withArches(top, wz.filter((z) => z > 1), ar.r, ar.y), W, 0.08, mats.paint, body, y0, c.livery);
-  windowTrim([[1.12, 1.4], [1.12, 2.1], [1.95, 2.14], [2.25, 1.45]], W - 0.08, s.glass, mats.trim, body, y0);
-  glassQuad([2.0, 2.24], [2.35, 1.46], W * 0.84, s.glass, body, y0);
-  // bed floor + canvas canopy
-  box(body, mats.under, W, 0.18, 4.2, 0, y0 + 0.5, -1.15, 0.03);
-  for (const sd of [-1, 1]) box(body, mats.paint, 0.07, 0.55, 4.2, sd * (W / 2 - 0.035), y0 + 0.85, -1.15, 0.02);
-  const can = new THREE.Shape(); can.moveTo(-W / 2, 0); can.lineTo(-W / 2, 0.9); can.quadraticCurveTo(-W / 2, 1.5, 0, 1.55); can.quadraticCurveTo(W / 2, 1.5, W / 2, 0.9); can.lineTo(W / 2, 0); can.closePath();
-  const cg = new THREE.ExtrudeGeometry(can, { depth: 4.1, bevelEnabled: true, bevelSize: 0.03, bevelThickness: 0.03, bevelSegments: 2 });
-  cg.translate(0, 0, -4.1 / 2);
-  const cm = mesh(cg, mats.paint2, body); cm.position.set(0, y0 + 0.6, -1.15);
-  for (let i = 0; i < 5; i++) box(body, mats.trim, W + 0.04, 0.04, 0.05, 0, y0 + 2.14, -3.0 + i * 0.92);
-  box(body, mats.trim, W * 0.7, 0.55, 0.05, 0, y0 + 0.85, 3.22, 0.03);
-  for (let i = 0; i < 6; i++) box(body, mats.paint, 0.05, 0.5, 0.03, -W * 0.3 + i * W * 0.12, y0 + 0.85, 3.25);
-  for (const sd of [-1, 1]) { box(body, mats.trim, 0.14, 0.3, 0.06, sd * (W / 2 + 0.1), y0 + 1.6, 2.2, 0.02); box(body, mats.under, 0.4, 0.5, 0.9, sd * (W / 2 - 0.25), y0 + 0.15, 0.3, 0.06); }
-  return { hood: [2.75, y0 + 1.38, 0.8], cab: [1.0, 2.35, y0 + 2.25, W], front: 3.24, rear: -3.25, bumperY: y0 + 0.35, lightY: y0 + 1.0, exhaust: [[W / 2 - 0.1, y0 + 2.4, 0.9]], nosAt: [0, y0 + 0.75, -0.2], snorkelZ: 2.3, roofY: y0 + 2.25, stacks: true };
+  // the upright screen and flat side glass mirror the ground at full env strength and read as paint: tone it down
+  const glass = (s.glass as THREE.MeshPhysicalMaterial).clone(); glass.envMapIntensity = 0.9; glass.opacity = 0.9;
+  // cab: vertical rear wall, flat roof, near-upright screen, long flat bonnet, blunt nose
+  const top: P[] = [[-0.25, 0.12], [-0.27, 1.9], [-0.21, 1.97], [1.08, 1.98], [1.14, 1.95], [1.4, 1.27], [3.0, 1.2], [3.14, 1.12], [3.18, 0.12]];
+  profileBody(withArches(top, wz.filter((z) => z > 1), ar.r * 1.04, ar.y), W - 0.06, 0.02, mats.paint, body, y0, c.livery);
+  // flat glass all round, a body-colour B-pillar between the two side windows
+  windowTrim([[-0.12, 1.3], [-0.12, 1.86], [0.48, 1.87], [0.48, 1.3]], W - 0.02, glass, mats.trim, body, y0);
+  windowTrim([[0.62, 1.3], [0.62, 1.88], [1.04, 1.89], [1.28, 1.3]], W - 0.02, glass, mats.trim, body, y0);
+  glassQuad([1.39, 1.3], [1.12, 1.96], W * 0.86, glass, body, y0, 0.03);
+  box(body, glass, W * 0.62, 0.5, 0.02, 0, y0 + 1.56, -0.31);
+  for (const sd of [-1, 1]) {
+    const x = sd * (W / 2 - 0.02);
+    box(body, mats.trim, 0.05, 0.09, 3.2, x + sd * 0.015, y0 + 0.78, 1.45);                 // black rub strip along the doors
+    for (const z of [0.55, -0.22, 1.32]) box(body, mats.trim, 0.012, 1.05, 0.012, x + sd * 0.012, y0 + 0.76, z);   // door shut lines
+    for (const z of [0.42, 1.2]) box(body, s.chrome, 0.04, 0.05, 0.16, x + sd * 0.03, y0 + 1.16, z, 0.015);          // push-button handles
+    for (const y of [0.45, 1.05]) cyl(body, mats.trim, 0.035, 0.14, x + sd * 0.025, y0 + y, 1.3, 'y', 10);          // exposed door hinges
+    box(body, mats.trim, 0.06, 0.05, 1.5, x + sd * 0.01, y0 + 1.27, 0.55, 0.01);           // drip rail / window line
+    box(body, mats.trim, 0.06, 0.04, 1.3, x + sd * 0.01, y0 + 1.99, 0.42, 0.01);           // roof gutter
+    // indicator pods on the wing tops
+    box(body, mats.trim, 0.2, 0.09, 0.16, sd * (W / 2 - 0.16), y0 + 1.25, 2.95, 0.03);
+    box(body, s.amber, 0.16, 0.06, 0.05, sd * (W / 2 - 0.16), y0 + 1.27, 3.03, 0.01);
+    // mirrors on stalks
+    box(body, mats.trim, 0.08, 0.06, 0.2, sd * (W / 2 + 0.06), y0 + 1.34, 1.3, 0.02);
+    box(body, mats.trim, 0.06, 0.24, 0.3, sd * (W / 2 + 0.16), y0 + 1.45, 1.26, 0.03);
+    // running boards and side-exit twin pipes ahead of the tandem
+    box(body, s.steel, 0.24, 0.06, 1.55, sd * (W / 2 + 0.06), y0 + 0.05, 0.55, 0.02);
+    for (const dy of [0, 0.15]) cyl(body, s.chrome, 0.055, 0.22, sd * (W / 2 - 0.02), y0 + 0.12 + dy, -0.22, 'x', 14);
+    // huge squared-off wheel-arch extensions
+    for (const z of [...new Set(wz)]) {
+      box(body, mats.trim, 0.2, 0.09, c.R * 2.5, sd * (W / 2 + 0.06), y0 + ar.y + ar.r + 0.04, z, 0.03);
+      for (const e of [-1, 1]) box(body, mats.trim, 0.2, 0.5, 0.09, sd * (W / 2 + 0.06), y0 + ar.y + ar.r - 0.2, z + e * c.R * 1.22, 0.03, e * 0.25);
+    }
+  }
+  // bonnet creases + headlamp brows
+  for (const sd of [-1, 1]) box(body, mats.paint, 0.05, 0.03, 1.55, sd * 0.42, y0 + 1.22, 2.22, 0.01);
+  // slatted grille between the round lamps, three-pointed-star-free
+  box(body, mats.trim, 1.02, 0.5, 0.04, 0, y0 + 0.86, 3.19, 0.02);
+  for (let i = 0; i < 13; i++) box(body, s.chrome, 0.022, 0.42, 0.03, -0.45 + i * 0.075, y0 + 0.86, 3.215);
+  box(body, s.chrome, 1.0, 0.03, 0.03, 0, y0 + 1.1, 3.215);
+  for (const sd of [-1, 1]) { cyl(body, s.headlight, 0.07, 0.04, sd * 0.78, y0 + 0.42, 3.27, 'z', 14); box(body, mats.trim, 0.3, 0.36, 0.05, sd * 0.8, y0 + 0.86, 3.2, 0.02); }
+  // roof LED bar
+  box(body, mats.trim, W * 0.82, 0.12, 0.18, 0, y0 + 2.05, 1.0, 0.03);
+  const led = box(body, s.headlight, W * 0.76, 0.07, 0.03, 0, y0 + 2.05, 1.1, 0.01); led.castShadow = false;
+  // pickup bed over the tandem axle: flat sides with both rear arches, wooden slat floor, tailgate, sports bar
+  const bz0 = -3.2, bz1 = -0.32;
+  const bedPts: P[] = withArches([[bz0, 0.12], [bz0, 1.2], [bz1, 1.2], [bz1, 0.12]], wz.filter((z) => z < 0), ar.r * 1.04, ar.y);
+  for (const sd of [-1, 1]) {
+    const side = profileBody(bedPts, 0.08, 0.02, mats.paint, body, y0, c.livery); side.position.x = sd * (W / 2 - 0.07);
+    box(body, mats.trim, 0.12, 0.05, bz1 - bz0, sd * (W / 2 - 0.07), y0 + 1.22, (bz0 + bz1) / 2, 0.02);
+    box(body, mats.trim, 0.05, 0.09, bz1 - bz0 - 0.1, sd * (W / 2 - 0.02), y0 + 0.78, (bz0 + bz1) / 2);
+  }
+  woodMat ??= new THREE.MeshStandardMaterial({ color: 0x8a5a33, roughness: 0.75, metalness: 0 });
+  box(body, mats.under, W - 0.2, 0.1, bz1 - bz0, 0, y0 + 0.5, (bz0 + bz1) / 2);
+  for (let i = 0; i < 7; i++) box(body, woodMat, (W - 0.24) / 7 - 0.03, 0.04, bz1 - bz0 - 0.06, -(W - 0.24) / 2 + (i + 0.5) * (W - 0.24) / 7, y0 + 0.57, (bz0 + bz1) / 2, 0.01);
+  box(body, mats.paint, W - 0.12, 0.72, 0.07, 0, y0 + 0.86, bz0 + 0.04, 0.02);
+  box(body, mats.trim, W - 0.3, 0.05, 0.03, 0, y0 + 1.1, bz0 + 0.0);
+  box(body, mats.trim, W, 0.24, 0.22, 0, y0 + 0.32, bz0 - 0.06, 0.05);
+  plates(c, 3.24, bz0 - 0.18, y0 + 0.32);
+  const bx = W / 2 - 0.14, bzR = bz1 - 0.35;
+  for (const sd of [-1, 1]) {
+    tubePath(body, mats.paint2, [[sd * bx, y0 + 1.22, bzR], [sd * bx, y0 + 1.95, bzR - 0.05], [sd * (bx - 0.25), y0 + 2.12, bzR - 0.08]], 0.06);
+    tube(body, mats.paint2, [sd * bx, y0 + 1.8, bzR - 0.04], [sd * bx, y0 + 1.22, bzR - 0.95], 0.05);
+  }
+  tube(body, mats.paint2, [-(bx - 0.25), y0 + 2.12, bzR - 0.08], [bx - 0.25, y0 + 2.12, bzR - 0.08], 0.06);
+  for (const sd of [-1, 1]) { const l = cyl(body, s.headlight, 0.08, 0.06, sd * 0.38, y0 + 2.12, bzR - 0.16, 'z', 14); l.rotation.y = Math.PI; l.castShadow = false; }
+  return { hood: [2.25, y0 + 1.2, 1.4], cab: [-0.25, 1.12, y0 + 1.98, W - 0.06], front: 3.2, rear: bz0 - 0.1, bumperY: y0 + 0.36, lightY: y0 + 0.88, exhaust: [[W / 2 + 0.06, y0 + 0.12, -0.22], [-W / 2 - 0.06, y0 + 0.12, -0.22]], nosAt: [0, y0 + 0.85, -2.3], snorkelZ: 1.3, roofY: y0 + 1.98, noStacks: true };
 }
 
 function dakar(c: Ctx): Anch {

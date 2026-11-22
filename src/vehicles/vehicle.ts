@@ -126,8 +126,8 @@ export class Vehicle {
       drive = Math.min(power / vEff, this.mass * 9.81 * (d.special === 'bike' ? 0.75 : 1.25)) * c.throttle;
       if (d.torque) {
         // extra torque: pull up grades and through mud without changing flat-ground acceleration
-        const climb = Math.max(0, this.main.forward().y);
-        drive += (d.torque - 1) * this.mass * 9.81 * (climb + ROLL[this.main.wheels[0].surface]) * c.throttle;
+        const climb = Math.max(0, this.parts.reduce((a, p) => a + p.forward().y, 0) / nParts);   // the whole chain's grade
+        drive += (d.torque - 1) * this.mass * 9.81 * (climb + ROLL[this.main.wheels[0].surface]) * c.throttle * Math.max(0.1, 1 - aspd / (top * 0.5));   // low-speed pull, not free power
       }
       drive *= Math.max(0, Math.min(1, (top - speed) / (top * 0.12)));
     } else if (reversing) {
@@ -260,6 +260,27 @@ export class Vehicle {
         const pitch = (c.throttle - c.brake) * I * dt * 1.4, rollC = -c.steer * I * dt * 0.9;
         b.applyTorqueImpulse({ x: r.x * pitch + fw.x * rollC, y: r.y * pitch + fw.y * rollC, z: r.z * pitch + fw.z * rollC }, true);
       }
+      if (d.cling && contacts) {
+        // adhesion: on steep ground press the tyres into the slope (up to cling x its weight on a wall) so the grip and the
+        // climbing torque have something to bite with, and keep the chassis square to the surface so a segment can't peel
+        // off backwards. Flat ground is untouched.
+        let nx = 0, ny = 0, nz = 0;
+        for (let i = 0; i < n; i++) if (p.wheels[i].contact) { const cn = ctrl.wheelContactNormal(i); if (cn) { nx += cn.x; ny += cn.y; nz += cn.z; } }
+        const nl = Math.hypot(nx, ny, nz);
+        if (nl > 0.5) {
+          nx /= nl; ny /= nl; nz /= nl;
+          const steep = Math.max(0, Math.min(1, (1 - ny) / 0.6));
+          if (steep > 0) {
+            const k = -d.mass * 9.81 * d.cling * steep * (contacts / n) * dt;
+            b.applyImpulse({ x: nx * k, y: ny * k, z: nz * k }, true);
+            const Ia = d.mass * (d.len * d.len + d.hgt * d.hgt) / 12;
+            const ex = upv.y * nz - upv.z * ny, ey = upv.z * nx - upv.x * nz, ez = upv.x * ny - upv.y * nx;   // up x normal
+            const wn = av.x * nx + av.y * ny + av.z * nz;
+            const kk = Ia * dt * steep;
+            b.applyTorqueImpulse({ x: (ex * 60 - (av.x - wn * nx) * 9) * kk, y: (ey * 60 - (av.y - wn * ny) * 9) * kk, z: (ez * 60 - (av.z - wn * nz) * 9) * kk }, true);
+          }
+        }
+      }
       if (isTank && contacts) {
         // track steering: a yaw-rate controller on the real yaw inertia (the 12 road wheels' side grip fights a pivot hard).
         // ~70 deg/s on the spot, easing to ~30 deg/s at full speed; reversing turns the way the hull points.
@@ -328,7 +349,8 @@ export class Vehicle {
     this.onGround = anyContact;
     if (this.stalled > -1.5) this.stalled -= dt;
     const upv = this.main.up();
-    this.flippedT = upv.y < 0.3 && aspd < 3 ? this.flippedT + dt : 0;
+    // (a clinging vehicle on a wall with its wheels down isn't flipped)
+    this.flippedT = upv.y < 0.3 && aspd < 3 && !(d.cling && anyContact && upv.y > -0.2) ? this.flippedT + dt : 0;
   }
 
   addDamage(impulse: number) {

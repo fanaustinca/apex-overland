@@ -1,6 +1,6 @@
 // Procedural world generation. Pure data (no DOM / three) so it runs in a Web Worker and in node tools.
 import { Simplex, smoothstep, clamp, lerp } from '../core/noise';
-import { WORLD, OFFROAD, PASSES, LAKES, type River, NARROWS, N, V, CELL, HALF, CTRL, RIVERS, PITS, HUB, CANYON_X0, CANYON_X1, CANYON_FLOOR, CANYON_WATER, canyonZ, biomeWeights, hubFactor, LANDMARKS, type Landmark, type P2 } from './layout';
+import { WORLD, OFFROAD, PASSES, LAKES, type River, NARROWS, N, V, CELL, HALF, CTRL, RIVERS, PITS, HUB, CANYON_X0, CANYON_X1, CANYON_FLOOR, CANYON_WATER, canyonZ, biomeWeights, hubFactor, LANDMARKS, PEAK, type Landmark, type P2 } from './layout';
 
 export const SEED = 1337;
 
@@ -61,14 +61,26 @@ export function forestH(x: number, z: number): number {
   return 34 + 42 * sx.fbm(x / 820 + 3, z / 820 + 1, 5) + 9 * s2.ridged(x / 260, z / 260, 4) + 2.5 * s3.fbm(x / 50, z / 50, 2);
 }
 export const APEX = { x: -150, z: -1560, h: 500 };
+/** Ridged multifractal like Simplex.ridged, but each octave's crest is rounded (smoothed |n|): mountain ridges with
+ *  drivable shoulders instead of knife edges. `round` widens the rounding (fine octaves stay crisp-ish). */
+function softRidge(nz: typeof s2, x: number, z: number, oct: number, round = 0.12): number {
+  let a = 1, f = 1, s = 0, norm = 0, w = 1;
+  for (let o = 0; o < oct; o++) {
+    const n = nz.n(x * f + o * 31.7, z * f + o * 7.7), r = round / (1 + o);
+    let v = 1 - Math.sqrt(n * n + r * r) + r;
+    v *= v; v *= w; w = Math.min(1, v * 1.6);
+    s += v * a; norm += a; a *= 0.5; f *= 2.1;
+  }
+  return s / norm;
+}
 export function snowH(x: number, z: number): number {
   const m = smoothstep(80, 1400, -z);
   const base = 50 + m * 70 + 10 * sx.fbm(x / 300, z / 300, 4);
   // Mount Apex: a broad massif whose smooth south face carries the switchbacks
   const dm = Math.hypot(x - APEX.x, (z - APEX.z) * 1.15);
   const cone = Math.max(0, 1 - Math.max(dm, 55) / 1150);
-  const rug = s3.ridged(x / 380, z / 380, 6);
-  let massif = APEX.h * Math.pow(cone, 1.45) * (0.8 + 0.42 * rug * smoothstep(0.05, 0.5, 1 - cone));
+  const rug = softRidge(s3, x / 460, z / 460, 4);
+  let massif = APEX.h * Math.pow(cone, 1.45) * (0.86 + 0.26 * rug * smoothstep(0.05, 0.5, 1 - cone));
   // the summit pyramid: a steep rock horn above the summit station
   const dp = Math.hypot(x - APEX.x, (z - APEX.z - 40) * 1.1);
   massif += 270 * Math.pow(Math.max(0, 1 - dp / 430), 1.7) * (0.85 + 0.3 * s2.ridged(x / 160, z / 160, 4));
@@ -77,11 +89,17 @@ export function snowH(x: number, z: number): number {
   const dx = bx - ax, dz = bz - az, L2 = dx * dx + dz * dz;
   let u = ((x - ax) * dx + (z - az) * dz) / L2; u = clamp(u, 0, 1);
   const dr = Math.hypot(ax + dx * u - x, az + dz * u - z);
-  const ridge = (330 - 120 * u) * Math.pow(Math.max(0, 1 - dr / 300), 1.3) * (0.9 + 0.15 * s2.fbm(x / 150, z / 150, 3));
+  // (its east end tapers into a long spur that runs down into the forest, instead of stopping in a 200 m cliff)
+  const ridge = (330 - 120 * u) * (1 - 0.82 * smoothstep(0.45, 1, u)) * Math.pow(Math.max(0, 1 - dr / 300), 1.3) * (0.9 + 0.15 * s2.fbm(x / 150, z / 150, 3));
   // jagged background ranges, flattened along the switchback corridor on the south face
   const corridor = (1 - smoothstep(260, 520, Math.abs(x + 40))) * (1 - smoothstep(-1250, -1150, -z - 0) * 0) ;
-  const r = Math.pow(s2.ridged(x / 760 - 4, z / 760 + 2, 6), 1.25);
-  const ranges = r * (40 + 330 * m * m) * (1 - 0.5 * corridor * smoothstep(-1500, -1350, z));
+  // broad ranges with rounded shoulders (few octaves: big landforms, drivable flanks), a little fine rock on top
+  const r = Math.pow(softRidge(s2, x / 1250 - 4, z / 1250 + 2, 4, 0.2), 1.4);
+  // ...that die down toward the forest / quarry seams (deep inside the north they stand tall), so the mountains roll down
+  // into the neighbouring biomes instead of ending in a kilometre-long scarp
+  const warp = sx.fbm(x / 1100 + 40, z / 1100 - 40, 3), wx = x + warp * 160, wz = z - warp * 140;   // as biomeWeights
+  const deep = 0.1 + 0.9 * smoothstep(0, 800, -wz - Math.abs(wx));
+  const ranges = (r * (30 + 250 * m * m) + 2.5 * m * s3.fbm(x / 70, z / 70, 3)) * deep * (1 - 0.5 * corridor * smoothstep(-1500, -1350, z));
   const k = 60; // smooth max
   const smax = (a: number, b: number) => { const hh = clamp(0.5 + 0.5 * (a - b) / k, 0, 1); return lerp(b, a, hh) + k * hh * (1 - hh) * 0.5; };
   return base + smax(smax(massif, ridge), ranges);
@@ -147,6 +165,7 @@ export function baseRows(j0: number, j1: number): Float32Array {
           h = Math.min(h, quarryH(p.x + dx * 0.0, p.z) - depth + 0.4 * s3.fbm(x / 20, z / 20, 2));
         }
       }
+      { const dx = x - PEAK.x, dz = z - PEAK.z; if (dx * dx + dz * dz < (PEAK.rFace * 1.12) ** 2) h = peakH(x, z, h); }
       for (const l of LANDMARKS) { const dx = x - l.x, dz = z - l.z; if (dx * dx + dz * dz < (l.r + 220) ** 2) h = landmarkH(l, x, z, h); }
       // world border mountains
       const e = smoothstep(HALF - 420, HALF, Math.max(Math.abs(x), Math.abs(z)));
@@ -177,11 +196,46 @@ export function landmarkLevel(l: Landmark): number {
 }
 /** Sinkhole geometry shared with the props and pond code. */
 export const SINK = { floorR: 46, depth: 36, poolR: 27, poolDepth: 4.5, rampW: 6, rampRun: 125 };
+/** Lookout Peak: a flat-topped summit with a long, even south-west face (the road's switchbacks) and steep ribbed flanks. */
+/** Lookout Peak's footprint radius toward (x, z), and how much that bearing faces the road side (1) vs round the back (0). */
+export function peakFoot(x: number, z: number): { R: number; fw: number } {
+  const bear = Math.atan2(x - PEAK.x, z - PEAK.z);
+  let df = bear - PEAK.face; if (df > Math.PI) df -= Math.PI * 2; if (df < -Math.PI) df += Math.PI * 2;
+  const fw = Math.pow(Math.max(0, Math.cos(df)), 1.6);
+  return { R: (PEAK.rBack + (PEAK.rFace - PEAK.rBack) * fw) * (1 + 0.09 * s2.n(Math.cos(bear) * 1.7 + 11, Math.sin(bear) * 1.7 - 4)), fw };
+}
+function peakH(x: number, z: number, h: number): number {
+  const d = Math.hypot(x - PEAK.x, z - PEAK.z);
+  const { R, fw } = peakFoot(x, z);                                          // fw: 1 on the road face, 0 round the back
+  if (d >= R) return h;
+  const t = clamp((d - PEAK.plateau) / (R - PEAK.plateau), 0, 1);
+  // the old ground under the mountain gives way to a smooth apron toward the middle (no stray crags on the road face)
+  const apron = lerp(h, 150 + 8 * s3.fbm(x / 140, z / 140, 2), 1 - smoothstep(0.6 * R, R, d));
+  const f = 1 - (0.7 * t + 0.3 * smoothstep(0, 1, t));                       // near-even slope, a rounded shoulder and foot
+  const ribs = (1 - fw) * 34 * s2.ridged(x / 130 + 5, z / 130, 4) * Math.sin(Math.PI * t);
+  const grain = 3 * s3.fbm(x / 45, z / 45, 2) * smoothstep(0, 0.12, t);
+  return lerp(apron, PEAK.h, f) + ribs + grain;
+}
 /** Landmark terrain: crater bowl, flattened boneyard with a crash gouge, sunken badlands, stunt-park earthworks, cenote. */
 function landmarkH(l: Landmark, x: number, z: number, h: number): number {
   const dx = x - l.x, dz = z - l.z, d = Math.hypot(dx, dz), R = l.r, hc = landmarkLevel(l);
   const ux = Math.sin(l.dir), uz = Math.cos(l.dir);
   switch (l.id) {
+    case 'summit': return h;   // shaped by peakH
+    case 'shipwreck': {
+      // dune sea levelled around the wreck, a long dune bank the hull leans against (it reaches her deck on the low side)
+      let t = lerp(h, hc + 0.7 * s3.fbm(x / 35, z / 35, 2), 1 - smoothstep(R * 0.7, R + 120, d));
+      const along = dx * ux + dz * uz, lat = dx * uz - dz * ux;         // hull lies across the way in
+      t += 5.8 * Math.exp(-(((lat - 10) / 8) ** 2)) * (1 - smoothstep(20, 34, Math.abs(along)));
+      t += 2.2 * Math.exp(-(((lat + 20) / 16) ** 2)) * (1 - smoothstep(10, 45, Math.abs(along + 8)));
+      return t;
+    }
+    case 'stones': return lerp(h, hc + 0.3 * s3.fbm(x / 20, z / 20, 2), 1 - smoothstep(R * 0.75, R + 70, d)) + 1.0 * Math.exp(-((d / 10) ** 2));
+    case 'radar': {
+      // the hilltop is levelled into a compound, easing back into the natural slopes below it
+      const pad = hc + 10 + 0.3 * s3.fbm(x / 25, z / 25, 2);
+      return lerp(pad, h, smoothstep(R * 0.65, R + 70, d));
+    }
     case 'crater': {
       // bowl with a raised, ragged rim, an ejecta apron and a central uplift. Walls top out near 28 degrees: steep, drivable.
       const ang = Math.atan2(dz, dx), rag = 0.75 + 0.5 * (0.5 + 0.5 * s2.n(Math.cos(ang) * 2.2 + 31, Math.sin(ang) * 2.2));
@@ -241,7 +295,7 @@ function erode(h: Float32Array) {
     const edge = Math.max(Math.abs(x), Math.abs(z)) > HALF - 450;
     mask[j * V + i] = w[2] > 0.25 || edge ? 1 : 0;
   }
-  const T = CELL * Math.tan(50 * Math.PI / 180);
+  const T = CELL * Math.tan(42 * Math.PI / 180);
   for (let it = 0; it < 14; it++) {
     for (let j = 1; j < V - 1; j++) for (let i = 1; i < V - 1; i++) {
       const k = j * V + i;
@@ -344,13 +398,14 @@ function carveValleys(data: WorldData) {
     }
   }
   for (const l of LAKES) {
-    const R = l.r + 320;
+    const R = l.r + 440;
     for (let j = Math.max(0, Math.floor((l.z - R + HALF) / CELL)); j <= Math.min(N, Math.ceil((l.z + R + HALF) / CELL)); j++)
       for (let i = Math.max(0, Math.floor((l.x - R + HALF) / CELL)); i <= Math.min(N, Math.ceil((l.x + R + HALF) / CELL)); i++) {
         const x = -HALF + i * CELL, z = -HALF + j * CELL, d = Math.hypot(x - l.x, z - l.z), k = j * V + i;
         if (d > R) continue;
         const o = Math.max(0, d - l.r);
-        data.height[k] = d < l.r ? l.h : clamp(data.height[k], l.h - o * 0.5, l.h + 0.1 + o * (0.1 + 0.32 * smoothstep(0, 90, o)));
+        const capped = d < l.r ? l.h : clamp(data.height[k], l.h - o * 0.5, l.h + 0.1 + o * (0.1 + 0.32 * smoothstep(0, 90, o)));
+        data.height[k] += (capped - data.height[k]) * (1 - smoothstep(l.r + 300, R, d));   // fade out at the edge: no cliff ring
       }
   }
 }
