@@ -51,6 +51,7 @@ export class Gfx {
   private prevVP = new THREE.Matrix4();
   private size = new THREE.Vector2();
   exposure = 1.0;
+  private adapt = 1;
   hazeColor = new THREE.Color(0.62, 0.72, 0.86);
   focus = new THREE.Vector3();
   hdr?: THREE.DataTexture;
@@ -72,6 +73,10 @@ export class Gfx {
     u.turbidity.value = 3.2; u.rayleigh.value = 1.25; u.mieCoefficient.value = 0.0045; u.mieDirectionalG.value = 0.86;
     u.sunPosition.value.copy(sunDir).multiplyScalar(4000);
     this.sky.material.depthWrite = false;
+    // the analytic sun disc is ~10^4 brighter than the sky: clamp it so bloom/god rays glow instead of whiting out the screen
+    this.sky.material.fragmentShader = this.sky.material.fragmentShader.replace('gl_FragColor = vec4( texColor, 1.0 );',
+      'float sl = max(max(texColor.r, texColor.g), texColor.b); texColor *= min(1.0, 6.0 / max(sl, 1e-4)); gl_FragColor = vec4( texColor, 1.0 );');
+    this.sky.material.needsUpdate = true;
     this.sky.frustumCulled = false;
     this.sky.renderOrder = -10;
     this.scene.add(this.sky);
@@ -254,8 +259,11 @@ export class Gfx {
     const cu = this.composite.uniforms;
     cu.tColor.value = color; cu.tDepth.value = this.sceneRT.depthTexture; cu.tRays.value = this.rayA.texture;
     cu.uInvVP.value.copy(vp).invert(); cu.uPrevVP.value.copy(this.prevVP); cu.uCam.value.copy(cam.position);
-    cu.uRays.value = rays * 0.18; cu.uBlur.value = s.motionBlur ? Math.min(1, 0.016 / Math.max(dt, 1e-3)) * 0.55 : 0;
-    cu.uExposure.value = this.exposure; cu.uTonemap.value = s.tonemap ? 1 : 0; cu.uNear.value = cam.near; cu.uFar.value = cam.far; cu.uTime.value = time;
+    cu.uRays.value = rays * 0.14; cu.uBlur.value = s.motionBlur ? Math.min(1, 0.016 / Math.max(dt, 1e-3)) * 0.55 : 0;
+    // eye adaptation: looking into a low sun stops the image down instead of washing it out
+    const glare = THREE.MathUtils.smoothstep(facing, 0.55, 0.97) * THREE.MathUtils.smoothstep(sunDir.y, -0.05, 0.1);
+    this.adapt += (1 - 0.32 * glare - this.adapt) * Math.min(1, dt * 2.5);
+    cu.uExposure.value = this.exposure * this.adapt; cu.uTonemap.value = s.tonemap ? 1 : 0; cu.uNear.value = cam.near; cu.uFar.value = cam.far; cu.uTime.value = time;
     const fxaa = s.aa === 'fxaa' || s.aa === 'msaa+fxaa';
     this.blit(this.composite, fxaa ? this.ldrRT : null);
     if (fxaa) { this.fxaa.uniforms.tDiffuse.value = this.ldrRT.texture; this.blit(this.fxaa, null); }
