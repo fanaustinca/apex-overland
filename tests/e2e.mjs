@@ -178,10 +178,13 @@ await test('heavy vehicle with dozer plow smashes trees into physical logs', asy
   const r = await page.evaluate(() => {
     const g = AO.game; g.profile.upgrades.dump = { ...g.profile.upgrades.dump, plow: 3 }; g.spawnPlayer('dump');
     const t = g.foliage.near(1030, 470, 60).filter((i) => g.foliage.tk[i] !== 2);
-    const tx = g.foliage.tx[t[0]], tz = g.foliage.tz[t[0]];
-    g.teleport(tx - 25, tz, Math.PI / 2);
     const before = g.foliage.broken;
-    AO.hold(['KeyW'], 6);
+    // drive at a few different trees in turn (one can sit behind a crest or a rock and be missed)
+    for (let k = 0; k < 4 && g.foliage.broken === before; k++) {
+      const tx = g.foliage.tx[t[k * 3]], tz = g.foliage.tz[t[k * 3]];
+      g.teleport(tx - 25, tz, Math.PI / 2);
+      AO.hold(['KeyW'], 6);
+    }
     return { broken: g.foliage.broken - before, logs: g.foliage.logs.length };
   });
   assert(r.broken >= 1, 'no trees broken');
