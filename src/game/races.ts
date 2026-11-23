@@ -68,6 +68,12 @@ export function buildRaces(roads: Road[], rivers: RiverLike[] = []): RaceDef[] {
     B(OFFROAD['dune-basher']), 800, { alts: [[[-1100, 1555], [1250, 1600]]] });
   add('baja-blast', 'Baja Blast', 0, 'The full Baja run along the far south: wide gravel, big crests and five tabletop jumps. Keep it pinned.', 3600,
     B([S('baja-run')]), 900);
+  if (roads.some((r) => r.id === 'rim-road'))
+    add('rim-road-run', 'Canyon Rim Run', 0, 'Flat-out gravel along the north rim of the canyon, bridge to bridge to bridge: fast sweepers, four big crests and a long drop on your right.', 3300,
+      B([S('rim-road')]), 650);
+  if (roads.some((r) => r.id === 'jump-alley'))
+    add('jump-alley', 'Jump Alley', 0, 'Whoops, whoops, whoops, then a monster tabletop: twice. Straight south from the hub into the desert. Land it or eat sand.', 2400,
+      B([S('jump-alley')]), 380, { rivals: 3, minSave: 9999 });
   // ---------------- Dense Forest ----------------
   add('timberline-plow', 'Timberline Plow', 1, 'A narrow trail through the thickest woods out to the Ridgeback. Bring a dozer plow and carve your own line.', 2800,
     B([S('timber-trail')]), 600, { minSave: 80 });
@@ -92,6 +98,9 @@ export function buildRaces(roads: Road[], rivers: RiverLike[] = []): RaceDef[] {
     B([S('hub-east', [40, 0], [720, -30]), S('forest-loop', [720, -30], [1520, 300])]), 700);
   add('ridgeback-rally', 'Ridgeback Rally', 1, 'A proper rally stage: from the frozen lake down the eastern ridge line, flowing gravel and four big crests.', 3600,
     B([S('ridgeback')]), 900);
+  if (roads.some((r) => r.id === 'forest-stage'))
+    add('forest-stage', 'Forest Rally Stage', 1, 'A narrow, twisting special stage through the eastern woods: blind crests, tight hairpins, trees an arm\'s length away. Pure rally.', 3400,
+      B([S('forest-stage')]), 450, { minSave: 9999 });
   // ---------------- Snowy Mountain ----------------
   add('avalanche-switchbacks', 'Avalanche Switchbacks', 2, 'Nine icy hairpins up the face of Mount Apex. Spiked tyres recommended.', 3000,
     B([S('hub-north', HUB_N)]), 900, { minSave: 300 });
@@ -111,11 +120,11 @@ export function buildRaces(roads: Road[], rivers: RiverLike[] = []): RaceDef[] {
       B([line]), 260, { strict: true, rivals: 3 });
   }
   if (roads.some((r) => r.id === 'summit-road')) {
-    // up the hairpin stack from the Summit Station, once round the summit cairn, and all the way back down
+    // up the spiral from the Summit Station, once round the summit cairn, and all the way back down
     const up = slice(roads, { r: 'summit-road' }), top = up[up.length - 1];
     const a0 = Math.atan2(top[1] - PEAK.z, top[0] - PEAK.x), loop: P2[] = [];
     for (let k = 0; k <= 48; k++) { const a = a0 + k / 48 * Math.PI * 2; loop.push([PEAK.x + Math.cos(a) * 17, PEAK.z + Math.sin(a) * 17]); }
-    add('apex-hillclimb', 'Apex Summit Hillclimb', 2, 'From the Summit Station up every hairpin of Mount Apex to the very top, once round the cairn, then all the way back down. Every gate counts.', 3800,
+    add('apex-hillclimb', 'Apex Summit Hillclimb', 2, 'From the Summit Station twice round Mount Apex on the spiral road to the very top, once round the cairn, then all the way back down. Every gate counts.', 3800,
       B([up, loop, [...up].reverse()]), 320, { strict: true, rivals: 4 });
   }
   // ---------------- Industrial Quarry ----------------
@@ -127,6 +136,9 @@ export function buildRaces(roads: Road[], rivers: RiverLike[] = []): RaceDef[] {
     B([REV('pitB-spiral'), S('haul-south'), S('canyon-entry')]), 700);
   add('quarry-mx', 'Quarry MX', 3, 'The west pit motocross track: four straights, three bermed hairpins and eight tabletops. Every gate counts.', 2600,
     B([S('mx-track')]), 230, { strict: true });
+  if (roads.some((r) => r.id === 'west-ridge'))
+    add('west-ridge', 'West Ridge Climb', 3, 'From the quarry haul road up the twisting west ridge into the snow, finishing at the mountain outpost junction.', 3000,
+      B([S('west-ridge')]), 500, { minSave: 9999 });
   // ---------------- Cross-biome marathons ----------------
   add('summit-to-sands', 'Summit to Sands', 'marathon', 'Snow to sand: down the switchbacks, through the hub, over the steel bridge and out to the Baja road.', 7000,
     B([S('hub-north', SUMMIT, [0, -40]), S('hub-south'), [[150, cz(150) - 100], [150, cz(150) + 100]], S('south-desert')]), 1200, { rivals: 5, minSave: 300 });

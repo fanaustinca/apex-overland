@@ -151,3 +151,43 @@ input[type=range] { accent-color: var(--accent); width: 100%; }
 .parts i { width: 46px; height: 10px; border-radius: 5px; background: rgba(255,255,255,.12); }
 .parts i.on { background: linear-gradient(90deg, #1f8a5b, #79ff3a); box-shadow: 0 0 10px rgba(121,255,58,.5); }
 @media (max-width: 900px) { .panel.mapview { grid-template-columns: 1fr; } .racelist { display: none; } .minimap { width: 160px; height: 160px; } .speedo { transform: scale(.8); transform-origin: bottom right; } }
+
+/* ---- progression ---- */
+.prog { margin-top: 6px; display: flex; align-items: center; gap: 12px; }
+.prog .lvl { display: flex; align-items: center; gap: 8px; }
+.prog .lvl b { font-size: 13px; font-weight: 900; color: #111; background: linear-gradient(#ffe08a, #f5a623); padding: 2px 7px; border-radius: 6px; letter-spacing: .5px; }
+.prog .xpbar { width: 110px; height: 6px; background: rgba(255,255,255,.15); border-radius: 3px; overflow: hidden; }
+.prog .xpbar i { display: block; height: 100%; width: 0; background: linear-gradient(90deg, #ffb347, #ffe27a); transition: width .4s; }
+.prog .tok { font-size: 14px; color: #ffd23a; font-weight: 700; }
+.chain { position: absolute; left: 50%; top: 22%; transform: translateX(-50%); text-align: center; text-shadow: 0 2px 12px rgba(0,0,0,.85); transition: opacity .3s, transform .2s; }
+.chain b { display: block; font-size: 44px; font-weight: 900; color: #fff; letter-spacing: 1px; }
+.chain small { font-size: 15px; font-weight: 800; color: #ffd36b; letter-spacing: 3px; }
+.chain small em { font-style: normal; color: #fff; background: #ff7a1a; padding: 0 6px; border-radius: 4px; margin-left: 4px; }
+.chain.hot b { color: #ffcf4a; transform: scale(1.08); }
+.chain.banked b { color: #6dff9a; }
+.chain.lost b { color: #ff5a4a; font-size: 34px; }
+.chain.hidden { opacity: 0; }
+.daily { position: absolute; right: 14px; top: 30px; width: 250px; font-size: 12px; color: #fff; background: rgba(10,14,20,.45); border-radius: 10px; padding: 8px 10px; backdrop-filter: blur(4px); }
+.daily h4 { margin: 0 0 6px; font-size: 11px; letter-spacing: 2px; color: #ffd36b; }
+.daily > div { position: relative; padding: 3px 0 5px; }
+.daily > div i { position: absolute; left: 0; bottom: 1px; height: 2px; background: #ffb347; border-radius: 1px; }
+.daily > div.done { color: #8dffb0; }
+.daily > div.done i { background: #4fdc7a; }
+.toast.level { background: linear-gradient(90deg, rgba(255,170,40,.95), rgba(255,215,90,.95)); color: #1a1200; font-weight: 800; font-size: 17px; }
+
+/* ---- multiplayer ---- */
+.nametag { position: fixed; left: 0; top: 0; pointer-events: none; font-size: 13px; font-weight: 800; color: #fff; background: rgba(30,90,200,.75); padding: 2px 8px; border-radius: 6px; white-space: nowrap; text-shadow: 0 1px 2px #000; will-change: transform; z-index: 2; }
+.panel.mp { width: min(460px, 92vw); }
+.panel.mp input { background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.2); color: #fff; border-radius: 6px; padding: 7px 10px; font: inherit; }
+.panel.mp .joinrow { display: flex; gap: 8px; margin: 10px 0; }
+.panel.mp .joinrow input { flex: 1; text-transform: uppercase; letter-spacing: 6px; font-size: 20px; font-weight: 800; text-align: center; }
+.panel.mp .mpcode { font-size: 15px; margin: 10px 0; display: flex; align-items: center; gap: 10px; }
+.panel.mp .mpcode b { font-size: 28px; letter-spacing: 6px; color: #ffd36b; }
+.panel.mp .mplist { margin: 4px 0 10px; padding-left: 18px; line-height: 1.6; }
+.panel.mp .mpstat { color: #8dffb0; font-size: 13px; min-height: 1em; }
+.panel.mp .mpstat.err { color: #ff7a6a; }
+.panel.mp .hint { font-size: 13px; color: #c9cfd6; }
+.chatbox { position: fixed; left: 50%; bottom: 60px; transform: translateX(-50%); width: min(520px, 80vw); z-index: 5; }
+.chatbox input { width: 100%; box-sizing: border-box; padding: 10px 14px; font: inherit; font-size: 15px; color: #fff; background: rgba(10,14,20,.8); border: 1px solid rgba(255,255,255,.3); border-radius: 8px; outline: none; }
+@media (max-height: 620px) { .daily { display: none; } .speedo { transform: scale(.75); transform-origin: bottom right; } .minimap { width: 170px; height: 170px; } .chain b { font-size: 34px; } }
+@media (max-width: 700px) { .daily { width: 190px; font-size: 11px; } .keys { display: none; } }

@@ -6,6 +6,8 @@ import type { World } from '../world/finish';
 import { SURF_NAMES } from '../world/finish';
 import GenWorker from '../world/gen.worker?worker';
 import RowsWorker from '../world/rows.worker?worker';
+import genWorkerUrl from '../world/gen.worker?worker&url';
+import rowsWorkerUrl from '../world/rows.worker?worker&url';
 import { VEHICLES, VEH, STOCK, stats, type Upgrades } from '../vehicles/defs';
 import { buildVisual } from '../vehicles/models';
 import { sampleH } from '../world/gen';
@@ -26,11 +28,36 @@ import { loadProfile, saveProfile, upgradesOf, type Profile } from './save';
 import { UPGRADE_INFO } from '../vehicles/defs';
 import { UI } from '../ui/ui';
 import { Audio } from './audio';
+import { Progress } from './progress';
+import { Multiplayer } from './multiplayer';
 import { assetUrl } from '../core/assets';
 
 declare global { interface Window { AO: any; dev: any } }
 
 /** World generation across workers: noise rows in parallel, the sequential core in one worker, then shading rows in parallel. */
+// ---- world cache: the generated world is deterministic per build, so keep it in IndexedDB and skip generation next time ----
+const WORLD_KEY = [genWorkerUrl, rowsWorkerUrl].join('|');   // hashed chunk names in production: change the generator, miss the cache
+function idb(): Promise<IDBDatabase | null> {
+  return new Promise((res) => {
+    try { const rq = indexedDB.open('apex-overland', 1); rq.onupgradeneeded = () => rq.result.createObjectStore('world'); rq.onsuccess = () => res(rq.result); rq.onerror = () => res(null); rq.onblocked = () => res(null); }
+    catch { res(null); }
+  });
+}
+async function loadCachedWorld(test: boolean): Promise<World | null> {
+  if (test || import.meta.env.DEV) return null;
+  const db = await idb(); if (!db) return null;
+  return new Promise((res) => {
+    try { const rq = db.transaction('world', 'readonly').objectStore('world').get(WORLD_KEY); rq.onsuccess = () => res((rq.result as World) ?? null); rq.onerror = () => res(null); }
+    catch { res(null); }
+  });
+}
+async function storeWorld(w: World) {
+  if (import.meta.env.DEV) return;
+  await new Promise((r) => setTimeout(r, 4000));   // after the first frames, off the critical path
+  const db = await idb(); if (!db) return;
+  try { const tx = db.transaction('world', 'readwrite'), st = tx.objectStore('world'); st.clear(); st.put(w, WORLD_KEY); } catch { /* quota / private mode */ }
+}
+
 export async function loadWorld(onLog: (s: string) => void): Promise<World> {
   const K = Math.max(2, Math.min(8, (navigator.hardwareConcurrency || 4) - 1));
   const pool = Array.from({ length: K }, () => new RowsWorker());
@@ -80,6 +107,8 @@ function loadTex(name: string) {
 export class Game {
   gfx: Gfx; terrain!: Terrain; grass!: Grass; phys!: Physics; foliage!: Foliage; water!: Water; props!: Props; particles!: Particles;
   world!: World; input = new Input(); ui!: UI; audio = new Audio();
+  progress!: Progress;
+  mp = new Multiplayer(this);
   profile: Profile = loadProfile();
   player!: VehicleEntity;
   rivals: VehicleEntity[] = [];
@@ -115,14 +144,15 @@ export class Game {
   async init(progress: (msg: string, f: number) => void) {
     const params = new URLSearchParams(location.search);
     this.test = params.has('test');
+    this.audio.volume = this.profile.volume ?? 0.7; this.audio.musicVol = this.profile.musicVol ?? 0.5; this.audio.musicOn = this.profile.musicOn ?? true;
     const q = params.get('quality') as keyof typeof PRESETS | null;
     const settings = q && PRESETS[q] ? { ...PRESETS[q] } : this.profile.settings ?? { ...PRESETS[autoPreset(this.gfx.renderer)] };
-    progress('Warming up the GPU', 0.02);
-    await this.gfx.settle();
-    progress('Sculpting 26 km² of terrain', 0.05);
-    await initRapier();
+    // the world generates in workers while the GPU context settles, the HDRI loads and Rapier's wasm compiles
+    progress('Sculpting 26 km² of terrain', 0.04);
     let step = 0;
-    this.world = await loadWorld((s) => progress('Generating world: ' + s, 0.08 + 0.05 * ++step));
+    const worldP = loadCachedWorld(this.test).then((w) => w ?? loadWorld((s) => progress('Generating world: ' + s, 0.08 + 0.05 * ++step)).then((w) => { if (!this.test) void storeWorld(w); return w; }));
+    await Promise.all([this.gfx.settle(), initRapier()]);
+    this.world = await worldP;
     for (const p of this.world.garages ?? []) Object.assign(GARAGES.find((g) => g.id === p.id)!, p);   // auto-sited in the generator
     progress('Building physics', 0.4);
     this.phys = new Physics(this.world.height);
@@ -152,6 +182,7 @@ export class Game {
     progress('Fuelling up', 0.92);
     this.applySettings(settings);
     this.ui = new UI(this);
+    this.progress = new Progress(this); this.progress.init();
     this.spawnPlayer(this.profile.current);
     this.teleportGarage('hub');
     this.phys.world.step();
@@ -216,26 +247,30 @@ export class Game {
   }
 
   // ---------------- races ----------------
-  startRace(id: string) {
+  /** Start a race; `slot` puts the player further back on the grid (multiplayer), `rivals` overrides the AI count. */
+  startRace(id: string, o: { slot?: number; rivals?: number } = {}) {
+    if (this.mp.active && this.mp.isHost && o.slot === undefined && this.mp.remotes.size) { this.mp.hostRace(id); return; }
+    if (o.slot === undefined) this.mp.raceId = '';
     this.endRace(true);
     const def = this.races.find((r) => r.id === id)!;
+    const nRivals = o.rivals ?? def.rivals, slot = o.slot ?? 0;
     const path = def.path;
     // grid follows the road backwards from the start line, two abreast
-    const s0 = Math.min(path.length - 2, 6 + Math.ceil((def.rivals + 1) / 2) * 4);
+    const s0 = Math.min(path.length - 2, 6 + Math.ceil((Math.max(nRivals, slot + 1, 8) + 1) / 2) * 4);
     const yawAt = (i: number) => { const a = path[Math.max(0, i - 1)], b = path[Math.min(path.length - 1, i + 1)]; return Math.atan2(b[0] - a[0], b[1] - a[1]); };
     const yaw0 = yawAt(s0);
     const grid = (k: number) => { const row = Math.floor(k / 2), col = k % 2 ? 1 : -1, i = Math.max(0, s0 - row * 4), y = yawAt(i); return { x: path[i][0] + Math.cos(y) * col * 2.6, z: path[i][1] - Math.sin(y) * col * 2.6, yaw: y }; };
-    const ps = grid(0);
+    const ps = grid(slot);
     this.place(this.player, ps.x, ps.z, ps.yaw);
     const playerRacer: RaceRacer = { e: this.player, cp: 0, finished: 0, lastCp: new THREE.Vector3(ps.x, 0, ps.z), lastYaw: ps.yaw, progress: 0, remain: def.len, idx: 0 };
     const racers: RaceRacer[] = [playerRacer];
     const cls = this.player.def.cls;
     const pool = VEHICLES.filter((v) => v.id !== 'snake' && v.id !== this.player.def.id && (v.cls === cls || Math.abs(v.top - this.player.def.top) < 9));
     const names = ['Rex "Gravel" Duarte', 'Mika Sandvik', 'Juno Okafor', 'Tess Ramirez', 'Kai Brennan', 'Ola Lindqvist'];
-    for (let k = 0; k < def.rivals; k++) {
+    for (let k = 0; k < nRivals; k++) {
       const vd = pool[(k * 7 + id.length) % pool.length] ?? VEH.pickup;
       const up: Upgrades = { ...STOCK, engine: 1 + Math.min(3, Math.floor(k / 2) + (this.player.up.engine > 2 ? 1 : 0)), suspension: 2, tires: 2, compound: def.biome === 2 ? 'snow' : def.biome === 0 ? 'sand' : def.biome === 1 ? 'mud' : 'allterrain', snorkel: def.id === 'muddy-creek' ? 1 : 0 };
-      const g = grid(k + 1);
+      const g = grid(k + 1 + (slot === 0 ? 0 : slot));
       const e = new VehicleEntity(this.phys, vd, up, { x: g.x, y: this.ground(g.x, g.z) + stats(vd, up).wheelR + vd.susp.rest + 0.5, z: g.z }, g.yaw, this.gfx.scene);
       e.name = names[k % names.length];
       e.driver = new Driver(path, 0.92 + k * 0.03);
@@ -348,7 +383,7 @@ export class Game {
     const R = this.race!;
     R.done = true;
     const order = this.standings();
-    const place = order.indexOf(R.player) + 1;
+    const ms = this.mp.standings(), place = ms ? ms.findIndex((r) => r.me) + 1 : order.indexOf(R.player) + 1;
     const mult = [1, 0.6, 0.38, 0.22, 0.15, 0.12][place - 1] ?? 0.1;
     const reward = Math.round(R.def.reward * mult / 10) * 10;
     this.profile.coins += reward;
@@ -357,7 +392,8 @@ export class Game {
     if (!prevBest || time < prevBest) this.profile.best[R.def.id] = time;
     if (!this.profile.wins[R.def.id] || place < this.profile.wins[R.def.id]) this.profile.wins[R.def.id] = place;
     saveProfile(this.profile);
-    this.ui.results(R.def, place, time, reward, !prevBest || time < prevBest, order);
+    this.progress.onRaceFinish(place, R.def.biome, reward);
+    this.ui.results(R.def, place, time, reward, !prevBest || time < prevBest, ms ? ms.map((r) => ({ e: { name: r.name }, finished: r.me ? time : r.fin })) : order);
     this.audio.finish(place === 1);
   }
 
@@ -394,13 +430,13 @@ export class Game {
     // exploration: discover garages and cabins
     for (const g of GARAGES) {
       const key = 'garage:' + g.id;
-      if (!this.profile.found.includes(key) && Math.hypot(p.x - g.x, p.z - g.z) < 45) { this.profile.found.push(key); if (!g.main) { this.profile.coins += 500; this.ui.toast(`🏁 Discovered ${g.name} (fast travel unlocked)  +500`, 'coin'); } saveProfile(this.profile); }
+      if (!this.profile.found.includes(key) && Math.hypot(p.x - g.x, p.z - g.z) < 45) { this.profile.found.push(key); this.progress.onDiscover(200); if (!g.main) { this.profile.coins += 500; this.ui.toast(`🏁 Discovered ${g.name} (fast travel unlocked)  +500`, 'coin'); } saveProfile(this.profile); }
     }
     for (const c of CABINS) {
       if (this.profile.barns.includes(c.id)) continue;
       const cp = this.props.cabinPos[c.id];
       if (Math.hypot(p.x - cp.x, p.z - cp.z) < 16) {
-        this.profile.barns.push(c.id); this.profile.coins += 2000;
+        this.profile.barns.push(c.id); this.profile.coins += 2000; this.progress.onDiscover(800);
         const all = this.profile.barns.length === 4;
         if (all) this.profile.owned.includes('snake') || this.profile.owned.push('snake');
         saveProfile(this.profile);
@@ -411,7 +447,7 @@ export class Game {
     for (const l of LANDMARKS) {
       const key = 'landmark:' + l.id;
       if (this.profile.found.includes(key) || Math.hypot(p.x - l.x, p.z - l.z) > l.r * 0.8) continue;
-      this.profile.found.push(key); this.profile.coins += l.reward; saveProfile(this.profile);
+      this.profile.found.push(key); this.profile.coins += l.reward; this.progress.onDiscover(500); saveProfile(this.profile);
       const n = LANDMARKS.filter((q) => this.profile.found.includes('landmark:' + q.id)).length;
       this.ui.toast(`⭐ Landmark discovered: ${l.name} (${n}/${LANDMARKS.length})  +${l.reward}`, 'coin');
       this.audio.finish(true);
@@ -468,7 +504,7 @@ export class Game {
       }
       const impulse = f * this.phys.dt;
       if (e1) e1.v.addDamage(impulse); if (e2 && e2 !== e1) e2.v.addDamage(impulse);
-      if ((e1?.isPlayer || e2?.isPlayer) && impulse > 3000) { this.audio.impact(Math.min(1, impulse / 40000)); this.gfx.camera.userData.shake = Math.min(0.6, impulse / 60000); }
+      if ((e1?.isPlayer || e2?.isPlayer) && impulse > 3000) { this.audio.impact(Math.min(1, impulse / 40000)); this.progress.onImpact(impulse / 40000); this.gfx.camera.userData.shake = Math.min(0.6, impulse / 60000); }
     });
   }
 
@@ -539,11 +575,17 @@ export class Game {
     this.grass.update(this.gfx.camera.position);
     this.foliage.update(this.gfx.camera);
     this.gfx.updateShadow(this.camLook.clone().lerp(this.gfx.camera.position, 0.3));
+    this.progress.update(dt, this.mode === 'drive');
+    this.mp.update(dt);
+    this.audio.biome = this.biome; this.audio.racing = !!this.race && this.race.countdown < 3;
     this.audio.update(this.player, dt, this.mode === 'drive' || this.mode === 'garage');
     this.ui.update(dt);
     if (inp.take('KeyM') && (this.mode === 'drive' || this.mode === 'map')) this.ui.toggleMap();
     if (inp.take('Escape') || inp.take('KeyP')) this.ui.escape();
     if (inp.take('KeyR') && this.mode === 'drive') this.recover();
+    if (inp.take('KeyH') && this.mode === 'drive') this.audio.horn();
+    if (inp.take('KeyT') && this.mode === 'drive') this.ui.openChat();
+    if (inp.take('KeyN')) { this.audio.setMusic(this.audio.musicVol, !this.audio.musicOn); this.profile.musicOn = this.audio.musicOn; saveProfile(this.profile); this.ui.toast(this.audio.musicOn ? '♪ Music on' : 'Music off', 'info', 1.5); }
     if (inp.take('KeyC') && this.mode === 'drive') this.camMode = this.camMode === 'chase' ? 'far' : this.camMode === 'far' ? 'hood' : 'chase';
     if (inp.take('KeyG') && this.mode === 'drive' && !this.race) { const g = this.nearestGarage(); if (g.d < 60) this.ui.openGarage(); else this.ui.toast('Drive to a garage (or use the map, M) to upgrade', 'warn'); }
     inp.endFrame();
@@ -606,6 +648,7 @@ export class Game {
   render(dt: number) { this.gfx.resize(); this.gfx.render(dt, this.time); }
 
   surfaceName() { const p = this.player.v.position(); return SURF_NAMES[this.env.surfaceAt(p.x, p.z)]; }
+  closeOverlays() { this.ui.closeAll(); }
   biomeName() { return this.biome === 4 ? 'Central Hub' : BIOME_NAMES[this.biome]; }
 }
 
@@ -627,7 +670,7 @@ export async function boot() {
   document.getElementById('ui')!.appendChild(loading);
   const bar = loading.querySelector('.bar i') as HTMLElement, msg = loading.querySelector('.msg') as HTMLElement;
   try {
-    await game.init((m, f) => { msg.textContent = m; bar.style.width = (f * 100).toFixed(0) + '%'; });
+    const tl = performance.now(); await game.init((m, f) => { console.info('[load]', Math.round(performance.now() - tl), m); msg.textContent = m; bar.style.width = (f * 100).toFixed(0) + '%'; });
   } catch (e) { msg.textContent = 'Failed to start: ' + (e as Error).message; console.error(e); throw e; }
   loading.classList.add('done'); setTimeout(() => loading.remove(), 800);
   const api = {
@@ -667,11 +710,20 @@ export async function boot() {
   window.AO = api;
   window.dev = makeDev(game, api);
   console.info('%cAPEX OVERLAND%c dev console: type dev.help()', 'color:#ff7a1a;font-weight:bold', 'color:inherit');
-  let last = performance.now();
+  let last = performance.now(), lowN = 0, hiN = 0;
   const loop = () => {
     const now = performance.now(), dt = Math.min(0.05, (now - last) / 1000); last = now;
     if (!game.manual) { game.update(dt); game.render(dt); }
-    game.frames++; game.fpsT += dt; if (game.fpsT > 0.5) { game.fps = game.frames / game.fpsT; game.frames = 0; game.fpsT = 0; }
+    game.frames++; game.fpsT += dt;
+    if (game.fpsT > 0.5) {
+      game.fps = game.frames / game.fpsT; game.frames = 0; game.fpsT = 0;
+      // dynamic resolution: drop render scale quickly when the frame rate sags, creep back up when there's headroom
+      if (!game.test && (game.mode === 'drive' || game.mode === 'garage')) {
+        if (game.fps < 46) { if (++lowN >= 2) { game.gfx.setDyn(game.gfx.dyn - 0.08); lowN = 0; } hiN = 0; }
+        else if (game.fps > 57) { if (++hiN >= 8) { game.gfx.setDyn(game.gfx.dyn + 0.05); hiN = 0; } lowN = 0; }
+        else { lowN = 0; hiN = 0; }
+      }
+    }
     requestAnimationFrame(loop);
   };
   requestAnimationFrame(loop);

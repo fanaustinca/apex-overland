@@ -63,17 +63,34 @@ export const SUMMIT: P2 = [-200, -1150];
 const MX = hairpins(-1650, -2000, -1650, 500, 135, 4);
 /** The spot `out` metres beyond a landmark's edge along its way-in bearing. */
 function lmGate(id: string, out: number): P2 { const l = LANDMARKS.find((q) => q.id === id)!; return [l.x + Math.sin(l.dir) * (l.r + out), l.z + Math.cos(l.dir) * (l.r + out)]; }
-/** The Apex summit road: from the Summit Station junction, seven legs across Mount Apex's south face joined by hairpins,
- *  then the last pull up to the summit. Authored (fixed spline), and the mountain face is fitted to it. */
+/** The Apex summit road: from the Summit Station junction it spirals twice round Mount Apex, hugging the mountain's
+ *  contours and weaving over its spurs and gullies, so every face gets its view and there's real mountainside (not a
+ *  stack of benches) between one turn and the next. It curls in to the summit on the south face. Authored (fixed
+ *  spline), and the mountain face is fitted to it. */
 const SUMMIT_PATH: P2[] = (() => {
-  const legs = hairpins(-200, -400, -15, -1226, -42, 7), last = legs[legs.length - 1];
-  const gx = PEAK.x + Math.sin(PEAK.face) * (PEAK.plateau - 8), gz = PEAK.z + Math.cos(PEAK.face) * (PEAK.plateau - 8);
-  return [SUMMIT, [-200, -1180], ...legs, [last[0] + (gx - last[0]) * 0.45, last[1] - 30], [gx, gz]] as P2[];
+  const P = (a: number, r: number): P2 => [PEAK.x + Math.sin(a) * r, PEAK.z + Math.cos(a) * r];
+  const face = PEAK.face, turns = 2, r0 = 332, r1 = 92, a0 = face + 0.12, span = turns * Math.PI * 2 - 0.5;
+  const pts: P2[] = [SUMMIT, P(face + 0.03, 386)];
+  let arc = 0, prev = P(a0, r0);
+  const n = 260;
+  for (let i = 0; i <= n; i++) {
+    const u = i / n, a = a0 + span * u;
+    // radius eases in (a touch faster on the first turn, where the mountain is broad)
+    const r = r0 - (r0 - r1) * (0.85 * u + 0.15 * smoothstep(0, 1, u));
+    const env = smoothstep(0, 0.04, u) * (1 - smoothstep(0.92, 1, u));
+    const q = P(a, r + env * (11 * Math.sin(a * 3.0 + 0.7) + 5 * Math.sin(arc / 23 + 1.3)));
+    arc += Math.hypot(q[0] - prev[0], q[1] - prev[1]); prev = q;
+    pts.push(q);
+  }
+  // final pull: curl in onto the plateau edge on the face bearing
+  pts.push(P(face - 0.2, 66), P(face - 0.06, 44), P(face, PEAK.plateau - 8));
+  return pts;
 })();
 export const ROAD_DEFS: RoadDef[] = [
   // hub spokes
   { id: 'hub-south', kind: 'asphalt', width: 11, grade: 0.09, ctrl: [[0, 40], [30, 300], [-30, 560], [60, 820], aN(BRIDGES_X[1]), bN(BRIDGES_X[1])] },
-  { id: 'hub-east', kind: 'dirt', width: 9, grade: 0.12, ctrl: [[40, 0], [300, -40], [520, 60], [720, -30], [900, 40], [1080, -70], [1230, -150], [1420, -210], [1650, -120], [1840, -60], [2000, -60]] },
+  { id: 'hub-east', kind: 'dirt', width: 9, grade: 0.12, ctrl: [[40, 0], [300, -40], [520, 60], [720, -30], [900, 40], [1080, -70], [1230, -150], [1420, -210], [1650, -120], [1840, -60], [2000, -60]],
+    bumps: [[0.3, 1.5, 14, 6, 18], [0.55, 1.8, 14, 8, 20], [0.82, 1.6, 14, 6, 18]] },
   { id: 'hub-west', kind: 'haul', width: 15, grade: 0.08, ctrl: [[-40, 0], [-300, 20], [-560, -20], [-820, -60], [-900, -60], spiral(PITS[0], 0.25, 1.15)[0]] },
   { id: 'hub-north', kind: 'snow', width: 8, grade: 0.14, ctrl: [[0, -40], [-20, -250], [-60, -700], [-120, -860], [-180, -1000], SUMMIT] },
   // desert outer: the Baja run along the far south, everything in the desert drains into it
@@ -81,7 +98,8 @@ export const ROAD_DEFS: RoadDef[] = [
     bumps: [[0.13, 2.2, 14, 12, 22], [0.3, 2.6, 16, 14, 24], [0.47, 2.2, 14, 10, 22], [0.62, 2.8, 16, 14, 26], [0.8, 2.4, 14, 12, 24]] },
   { id: 'south-desert', kind: 'asphalt', width: 11, grade: 0.13, ctrl: [bS(BRIDGES_X[1]), aS(BRIDGES_X[1]), [190, 1420], [140, 1640], [60, 1820], [10, 1955]] },
   // forest
-  { id: 'forest-loop', kind: 'dirt', width: 8, grade: 0.13, ctrl: [[720, -30], [800, 250], [1000, 420], [1260, 380], [1520, 300], [1700, 500], [1650, 800], [1400, 900], [1100, 800], [800, 620], [500, 400], [260, 160], [60, 30]] },
+  { id: 'forest-loop', kind: 'dirt', width: 8, grade: 0.13, ctrl: [[720, -30], [800, 250], [1000, 420], [1260, 380], [1520, 300], [1700, 500], [1650, 800], [1400, 900], [1100, 800], [800, 620], [500, 400], [260, 160], [60, 30]],
+    bumps: [[0.12, 1.6, 14, 6, 18], [0.33, 1.8, 14, 6, 20], [0.56, 1.6, 14, 6, 18], [0.78, 1.9, 14, 8, 20]] },
   { id: 'forest-north', kind: 'dirt', width: 8, grade: 0.14, ctrl: [[900, 40], [860, -300], [960, -600], [870, -915]] },
   // the Ridgeback: a fast gravel rally road along the eastern ridge line, lake pass to the Baja run
   { id: 'ridgeback', kind: 'gravel', width: 10, grade: 0.12, ctrl: [[1290, -1730], [1440, -1620], [1600, -1470], [1760, -1330], [1960, -1120], [2030, -850], [1940, -560], [2030, -260], [2000, -60], [1930, 240], [2040, 540], [1960, 850], [2030, 1150], [1940, 1480]],
@@ -89,7 +107,8 @@ export const ROAD_DEFS: RoadDef[] = [
   { id: 'timber-trail', kind: 'trail', width: 6, grade: 0.16, ctrl: [[1080, -70], [1330, 80], [1420, 330], [1600, 560], [1800, 650], [1900, 760], [1960, 850]] },
   // desert
   { id: 'desert-west', kind: 'dirt', width: 8, grade: 0.16, ctrl: [[-30, 560], [-350, 780], aN(BRIDGES_X[0]), bN(BRIDGES_X[0])] },
-  { id: 'desert-west-s', kind: 'dirt', width: 8, grade: 0.16, ctrl: [bS(BRIDGES_X[0]), aS(BRIDGES_X[0]), [-820, 1450], [-1000, 1620], [-1200, 1760], [-1420, 1880]] },
+  { id: 'desert-west-s', kind: 'dirt', width: 8, grade: 0.16, ctrl: [bS(BRIDGES_X[0]), aS(BRIDGES_X[0]), [-820, 1450], [-1000, 1620], [-1200, 1760], [-1420, 1880]],
+    bumps: [[0.45, 1.8, 14, 8, 20], [0.75, 2.0, 14, 8, 22]] },
   { id: 'desert-east', kind: 'dirt', width: 9, grade: 0.16, ctrl: [[60, 820], [480, 870], [760, 880], aN(BRIDGES_X[2]), bN(BRIDGES_X[2])] },
   { id: 'desert-east-s', kind: 'dirt', width: 9, grade: 0.16, ctrl: [bS(BRIDGES_X[2]), aS(BRIDGES_X[2]), [1080, 1380], [1250, 1600], [1300, 1800], [1440, 1910]] },
   { id: 'canyon-floor', kind: 'trail', width: 7, grade: 0.2, bank: 4, earth: false, fixed: true, ctrl: [...Array.from({ length: 33 }, (_, i) => -1150 + i * 40).map((x) => [x, cz(x) + 7 * Math.sin(x / 75)] as P2), [200, cz(200) + 6]] },
@@ -120,6 +139,14 @@ export const ROAD_DEFS: RoadDef[] = [
   { id: 'lm-boneyard', kind: 'trail', width: 6, grade: 0.15, ctrl: [[-1960, 1640], lmGate('boneyard', 15)] },
   { id: 'lm-stunt', kind: 'dirt', width: 8, grade: 0.14, ctrl: [[300, -40], lmGate('stunt', 8)] },
   // Apex summit road: from the Summit Station junction, switchbacking up Mount Apex's south face to the top
+  // ---- fun roads: flowing rim gravel, a tight forest rally stage, a desert jump alley, the quarry-to-snow ridge climb ----
+  { id: 'rim-road', kind: 'gravel', width: 10, grade: 0.12, corridor: 90, ctrl: [aN(BRIDGES_X[0]), ...[-560, -420, -260, -100, 40].map((x) => [x, cz(x) - 165] as P2), aN(BRIDGES_X[1]), ...[300, 440, 600, 760, 880].map((x) => [x, cz(x) - 165] as P2), aN(BRIDGES_X[2])],
+    bumps: [[0.2, 1.8, 16, 8, 22], [0.44, 2.0, 16, 8, 24], [0.71, 1.8, 16, 8, 22], [0.88, 2.2, 16, 10, 24]] },
+  { id: 'forest-stage', kind: 'dirt', width: 7, grade: 0.15, corridor: 70, ctrl: [[1230, -150], [1200, -300], [1300, -380], [1250, -480], [1380, -545], [1480, -450], [1440, -330], [1580, -270], [1690, -380], [1790, -290], [1850, -430], [1900, -520], [1940, -560]],
+    bumps: [[0.15, 1.6, 12, 4, 16], [0.36, 1.9, 13, 5, 18], [0.58, 1.6, 12, 4, 16], [0.8, 2.0, 13, 6, 18]] },
+  { id: 'jump-alley', kind: 'dirt', width: 10, grade: 0.12, corridor: 60, ctrl: [[-300, 20], [-325, 200], [-285, 380], [-345, 560], [-350, 780]],
+    bumps: [[0.1, 1.2, 7, 0, 7], [0.16, 1.2, 7, 0, 7], [0.22, 1.2, 7, 0, 7], [0.36, 3.0, 16, 12, 26], [0.52, 1.3, 7, 0, 7], [0.58, 1.3, 7, 0, 7], [0.64, 1.3, 7, 0, 7], [0.8, 3.4, 18, 14, 28]] },
+  { id: 'west-ridge', kind: 'gravel', width: 8, grade: 0.15, corridor: 80, ctrl: [[-1350, -520], [-1500, -690], [-1420, -870], [-1570, -1010], [-1470, -1150], [-1600, -1300]] },
   { id: 'summit-road', kind: 'asphalt', width: 10, grade: 0.15, pinEnd: true, even: true, fixed: true, ctrl: SUMMIT_PATH },
   { id: 'lm-shipwreck', kind: 'trail', width: 6, grade: 0.15, ctrl: [[-720, 1910], lmGate('shipwreck', 10)] },
   { id: 'lm-stones', kind: 'trail', width: 6, grade: 0.15, ctrl: [[1420, -210], lmGate('stones', 6)] },
@@ -380,11 +407,13 @@ function fitPeak(H: Float32Array, r: Road | undefined, core: Float32Array, other
     }
     d1 = Math.sqrt(d1);
     // a plane from this leg's bench to the next leg's (just the bench, beyond the outermost leg)
-    const tFit = n1 >= 0 && d1 < REACH ? sh[n0] + (sh[n1] - sh[n0]) * smoothstep(0, 1, clamp((dmin - 6) / Math.max(1, dmin + d1 - 12), 0, 1)) : sh[n0];
+    // (blend smoothly between 'between two turns' and 'outside the outermost turn' as the other turn drifts out of reach: no seams)
+    const w1 = n1 >= 0 ? 1 - smoothstep(REACH - 60, REACH, d1) : 0;
+    const tFit = w1 > 0 ? sh[n0] + (sh[n1] - sh[n0]) * smoothstep(0, 1, clamp((dmin - 6) / Math.max(1, dmin + d1 - 12), 0, 1)) * w1 : sh[n0];
     const sw = 1, swh = tFit;
     // the fitted surface owns the ground between the legs; toward the reach it hands back to the natural slope
     const foot = peakFoot(x, z).R;
-    let b = (1 - smoothstep(n1 >= 0 && d1 < REACH ? 120 : 40, n1 >= 0 && d1 < REACH ? REACH : 130, dmin)) * (1 - smoothstep(foot + 30, foot + 130, dp));
+    let b = ((1 - smoothstep(120, REACH, dmin)) * w1 + (1 - smoothstep(40, 130, dmin)) * (1 - w1)) * (1 - smoothstep(foot + 30, foot + 130, dp));
     for (const l of LAKES) b *= smoothstep(l.r + 30, l.r + 120, Math.hypot(x - l.x, z - l.z));
     if (b <= 0) continue;
     let dOther = 1e9; for (const q of oth) { const d2 = (q[0] - x) ** 2 + (q[1] - z) ** 2; if (d2 < dOther) dOther = d2; }
@@ -395,6 +424,28 @@ function fitPeak(H: Float32Array, r: Road | undefined, core: Float32Array, other
     // the very top is level with where the road arrives (the cairn, the deck, a lap round them), easing into the slope
     const crown = 1 - smoothstep(PEAK.plateau * 0.6, PEAK.plateau + 22, dp);
     if (crown > 0) H[k] += (top + 0.3 * nn - H[k]) * crown;
+  }
+}
+
+/** Talus pass: no artificial walls. Anywhere in the region steeper than `slope` between neighbouring cells, material slides
+ *  from the high cell to the low one (mass-conserving) until it settles; road cores and water never move. */
+function relaxSteps(H: Float32Array, core: Float32Array, noFill: Uint8Array, cx: number, cz: number, R: number, slope: number, iters: number) {
+  const m = slope * CELL, i0 = Math.max(1, Math.floor((cx - R + HALF) / CELL)), i1 = Math.min(V - 2, Math.ceil((cx + R + HALF) / CELL));
+  const j0 = Math.max(1, Math.floor((cz - R + HALF) / CELL)), j1 = Math.min(V - 2, Math.ceil((cz + R + HALF) / CELL));
+  const fixedCell = (k: number) => core[k] === core[k] || noFill[k] === 1;
+  for (let it = 0; it < iters; it++) {
+    let moved = 0;
+    for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
+      const k = j * V + i, fk = fixedCell(k);
+      for (const n of [k + 1, k + V]) {
+        const d = H[k] - H[n]; if (Math.abs(d) <= m) continue;
+        const fn = fixedCell(n); if (fk && fn) continue;
+        const ex = (Math.abs(d) - m) * 0.45 * Math.sign(d);
+        if (fk) H[n] += ex * 2; else if (fn) H[k] -= ex * 2; else { H[k] -= ex; H[n] += ex; }
+        moved++;
+      }
+    }
+    if (!moved) break;
   }
 }
 
@@ -457,7 +508,7 @@ function openCuttings(H: Float32Array, roads: Road[], core: Float32Array, noFill
   const batter = (u: number) => 0.28 * u + 0.0065 * u * u;
   const stamps: [number, number, number, number][] = [];   // x, z, road height, half width
   for (const r of roads) {
-    if (r.fixed || r.earth === false) continue;
+    if ((r.fixed && r.id !== 'summit-road') || r.earth === false) continue;
     const half = r.width / 2, n = r.pts.length;
     const flag = new Uint8Array(n);
     for (let i = 1; i < n - 1; i++) {
@@ -725,12 +776,12 @@ export function buildRoads(data: WorldData, pads: Pad[] = []): { roads: Road[]; 
   // then open up slots (never below any road's embankment, so switchback legs stay supported), and fit the Apex summit's
   // face (steeper than a fill batter) to its road
   // The summit road builds no embankments (its face is steeper than a fill batter; fitPeak shapes its shoulders)
-  const noEmbank = new Uint8Array(V * V), sr = roads.find((r) => r.id === 'summit-road');
-  if (sr) for (const [x, z] of sr.pts) { const ci = Math.round((x + HALF) / CELL), cj = Math.round((z + HALF) / CELL), R = Math.ceil((sr.width / 2 + 3) / CELL); for (let dj = -R; dj <= R; dj++) for (let di = -R; di <= R; di++) { const ii = ci + di, jj = cj + dj; if (ii >= 0 && jj >= 0 && ii < V && jj < V) noEmbank[jj * V + ii] = 1; } }
-  const fillLimit = earthworks(data.height, core, noFill, noEmbank);
+  // (the summit road's turns are far enough apart now that it gets ordinary embankments like every other road)
+  const fillLimit = earthworks(data.height, core, noFill);
   openCuttings(data.height, roads, core, noFill, fillLimit);
   benchLegs(data.height, roads, core, noFill);
   fitPeak(data.height, roads.find((r) => r.id === 'summit-road'), core, roads);
+  relaxSteps(data.height, core, noFill, PEAK.x, PEAK.z, PEAK.rFace + 260, 1.25, 60);
   // blend junctions: where independently graded roads meet, relax the heights over the road + shoulder cells
   {
     const H = data.height, mask = new Uint8Array(V * V);

@@ -29,7 +29,7 @@ The outer ring holds the **Baja run** (desert rally road with tabletop jumps) an
 Roads are laid out the way real ones are: a grade-aware pathfinder (A* over position + heading, with a minimum hairpin radius) routes every road between its waypoints along the contours, round mesas and up mountains in switchbacks, so roads hug the terrain and only shave a few metres off it. Embankments steepen with distance from their road (so a fill never fans out over the switchback below), the ground between stacked switchback legs is re-laid as one smooth slope, and wherever a road would still run in a slot its flanks are laid back into a broad, open valley, so no road is a trench. The snowy mountains are built from broad, round-shouldered ridges that roll down into the neighbouring biomes, so most of them can be driven, not just the roads. Shallow, irregular earthworks blend them in; junctions meet at the same height; river crossings are proper bridges; outpost garages site themselves beside their road on level ground. `npx tsx tools/audit.ts` checks all of it.
 
 **Landmarks** worth a detour (a gold star on the map once found, with a cash reward for each discovery):
-**Impact Crater** (a 350 m meteor crater with a glowing meteorite), **Aircraft Boneyard** (a crashed cargo plane whose broken wing is a ramp, plus a row of retired airliners), **Hoodoo Garden** (sandstone spires and a natural arch you can drive through), **Stunt Park** (kickers, tabletops, a dirt bowl, quarter pipes and a container gap), **The Sinkhole** (a 35 m cenote with a turquoise pool and one ramp down) **Apex Summit** (the top of Mount Apex, 600 m: an asphalt road climbs a stack of hairpins straight up the face from the Summit Station to a viewing deck, a summit cairn and a weather mast), the **Desert Shipwreck** (a three-master stranded in the dune sea; the dune bank runs up onto her deck), the **Standing Stones** (a ring of monoliths in the forest with two trilithon gates to drive through) the **Radar Station** (radomes, a giant dish and a lattice mast on a snowy hilltop) and the **Apex Ski Club** (a chairlift up Mount Apex's north face, slalom gates, a groomer and a ski jump you can launch a truck off).
+**Impact Crater** (a 350 m meteor crater with a glowing meteorite), **Aircraft Boneyard** (a crashed cargo plane whose broken wing is a ramp, plus a row of retired airliners), **Hoodoo Garden** (sandstone spires and a natural arch you can drive through), **Stunt Park** (kickers, tabletops, a dirt bowl, quarter pipes and a container gap), **The Sinkhole** (a 35 m cenote with a turquoise pool and one ramp down) **Apex Summit** (the top of Mount Apex, 600 m: an asphalt road spirals twice round the mountain from the Summit Station, hugging its contours over spurs and gullies, to a viewing deck, a summit cairn and a weather mast), the **Desert Shipwreck** (a three-master stranded in the dune sea; the dune bank runs up onto her deck), the **Standing Stones** (a ring of monoliths in the forest with two trilithon gates to drive through) the **Radar Station** (radomes, a giant dish and a lattice mast on a snowy hilltop) and the **Apex Ski Club** (a chairlift up Mount Apex's north face, slalom gates, a groomer and a ski jump you can launch a truck off).
 
 The northern ranges are crossed by the **High Traverse**, a 6.5 km gravel mountain road from the outpost valley behind the Pass Hut round the back of Mount Apex to the frozen lake, with cols down to the Radar Station and the Glacier Ridge.
 
@@ -46,10 +46,26 @@ Every vehicle is procedurally modelled (extruded body profiles with wheel-arch c
 ## Modular upgrades
 Engine & Drivetrain (T1–4: hood scoop → supercharger + stacks → twin turbos) · Suspension (T1–4: visible colour-coded single/dual coilovers, lift, travel) · Tires & Wheels (T1–4 diameter/grip + All-Terrain / Mud-Bogger / Sand Paddles / Spiked Snow compounds with per-surface grip) · Frame & Roll Cage (roof rails → external exo-cage) · Front Plow (bumper → bull bar → **Heavy Steel Dozer Plow** that lets heavyweights carve straight through forests) · Axles & Skid Plates · Nitrous · Snorkel · Winch. All of them change both the 3-D model and the physics.
 
-## Races (22)
-Canyon Breakout · Rim Jumper · Dune Basher · Baja Blast · Timberline Plow · Muddy Creek Run · Logging Camp Sprint · Ridgeback Rally · Avalanche Switchbacks · Peak Descent · Glacier Ridge · Frozen Lake Drift · **Apex Summit Hillclimb** (Summit Station to the top of Mount Apex, once round the cairn, and back down) · **High Traverse** (6.5 km across the whole northern range) · Pit Escape · Crusher Circuit · Haul Road Havoc · Quarry MX · and four cross-biome marathons: **Summit to Sands**, **Quarry to Forest**, **Timber to Canyon**, **Rim of the World**. Positions are ranked by distance still to go, so shortcuts count. AI rivals use pure-pursuit steering with curvature-based speed planning and recovery.
+## Races (26)
+Canyon Breakout · **Canyon Rim Run** (flowing gravel along the north rim, bridge to bridge to bridge) · **Jump Alley** (whoops and two monster tabletops) · Rim Jumper · Dune Basher · Baja Blast · Timberline Plow · Muddy Creek Run · Logging Camp Sprint · Ridgeback Rally · **Forest Rally Stage** (narrow, twisting, blind crests) · Avalanche Switchbacks · Peak Descent · Glacier Ridge · Frozen Lake Drift · **Apex Summit Hillclimb** (Summit Station to the top of Mount Apex, once round the cairn, and back down) · **High Traverse** (6.5 km across the whole northern range) · Pit Escape · Crusher Circuit · Haul Road Havoc · Quarry MX · **West Ridge Climb** (quarry to the snow) · and four cross-biome marathons: **Summit to Sands**, **Quarry to Forest**, **Timber to Canyon**, **Rim of the World**. Positions are ranked by distance still to go, so shortcuts count. AI rivals use pure-pursuit steering with curvature-based speed planning and recovery.
 
 Earn coins from races, speed traps, big jumps (the canyon narrows pay triple) and discovering outpost garages. Press **M** for the fast-travel map.
+
+## Progression
+- **Driver level**: XP from everything you do (races, discoveries, tokens, skill chains); every level pays out coins.
+- **Skill chains**: drift, catch air or hold 140+ km/h to build a chain. The multiplier climbs to ×8 the longer you keep it going. Pause for a moment and it banks into coins and XP; crash or flip and the chain is lost.
+- **50 Apex Tokens** are hidden round the world, marked by light beams from a distance and gold dots on the minimap when you're close. Every tenth one is a milestone bonus.
+- **Daily challenges**: three new ones every day (distance, drifts, big air, wins in a biome, tokens…), a bonus for clearing all three, and a login streak that pays more each day up to a week.
+
+## Multiplayer
+Menu → **Multiplayer**: host a lobby and share the 5-letter code, or join a friend's (up to 8 drivers, WebRTC peer-to-peer via PeerJS). Everyone free-roams the same world: you can see and bump each other's vehicles, with name tags and minimap dots. Any race the host starts, starts for everyone on a shared grid with a live leaderboard. Press **T** to chat.
+
+## Sound & music
+Everything is synthesised in Web Audio:
+- **Engines** play pre-rendered firing-pulse loops for each cylinder layout (V8 burble, straight-six diesel, single-cylinder thumper, flat-four, V12). They follow RPM and crossfade between on-load and off-load sounds, with gear-shift dips, turbo whistle, blow-off and exhaust crackle.
+- **Tyres and surroundings**: tyre squeal on tarmac and ice, gravel/sand/snow/mud crunch, wind, water, landings.
+- **Ambience** per biome: birdsong in the forest, hawks over the desert, mountain wind.
+- **Soundtrack**: a generative score with its own mood for each biome and a high-energy race cue. It writes evolving sections, so it never loops. `N` toggles music; volumes are in Graphics settings.
 
 ## Secret barn finds
 Four weathered barns hide the parts of The Snake. Look for faint tyre ruts branching off the main trails, broken fences, old *NO TRESPASSING* signposts and chimney smoke.
@@ -58,10 +74,12 @@ Four weathered barns hide the parts of The Snake. Look for faint tyre ruts branc
 Medium trees knocked down by heavy vehicles or plows become physical logs (capsule trunk + branch stubs) that stay on the terrain as hazards. Logs are put to sleep after resting for 2 s and the pool is capped at 60 (the oldest log retires gracefully).
 
 ## Graphics
+The generated world is cached in IndexedDB per build, so return visits skip generation, and the GPU warm-up overlaps world generation. Dynamic resolution drops the render scale when the frame rate sags and restores it when there's headroom. Resizing the window rebuilds render targets once it stops changing, not every frame.
+
 Presets **Low-Poly / Potato → Medium → High → Ultra Realism**, plus individual sliders: terrain detail (faceted low-poly ↔ 12-layer height-blended photo-scanned PBR with triplanar cliffs and anti-tiling), shadows (off ↔ 4096 PCF), shadow distance, foliage density (20–100 %), draw distance, particles, resolution, AA (FXAA / MSAA), and toggles for ACES filmic tone mapping, SSAO (GTAO), bloom, volumetric sun god-rays and motion blur. Image-based lighting from a CC0 HDRI, height-fog aerial perspective, GPU grass, wind-swayed foliage, flowing water with fresnel/sun glint.
 
 ## Controls
-`W/S` throttle / brake-reverse · `A/D` steer · `Space` handbrake (bike: hop) · `Shift` nitrous · `R` recover · `C` camera · `M` map · `G` garage · `Esc` menu · mouse drag to look · gamepad supported.
+`W/S` throttle / brake-reverse · `A/D` steer · `Space` handbrake (bike: hop) · `Shift` nitrous · `R` recover · `H` horn · `C` camera · `M` map · `G` garage · `N` music · `T` chat (multiplayer) · `Esc` menu · mouse drag to look · gamepad supported.
 
 ## Development
 ```bash
@@ -74,6 +92,8 @@ npx tsx tools/sim.ts hub-east crawler   # headless vehicle/AI tuning on a road
 npx tsx tools/map.ts map.png            # top-down render of the generated world
 npx tsx tools/audit.ts                  # every road/junction/garage/race: grades, ridges, drops, dead ends
 npx tsx tools/racesim.ts                # AI drives every race headless and reports finishes/resets
+npx tsx tools/steps.ts                  # sharp terrain steps (walls) round Mount Apex
+GPU=1 node tests/mp.mjs                 # two-tab local multiplayer check (?localnet)
 node tools/fetch-assets.mjs             # (re)download + pack the CC0 assets
 ```
 Dev console (F12): type `dev.help()` — teleports (`dev.tp`, `dev.garage`, `dev.cabin`), `dev.race`, `dev.finish`, `dev.car`, `dev.coins`, `dev.unlockAll`, `dev.barns`, `dev.pos`, `dev.fps`, `dev.preset` and more. Test API: `AO.state()`, `AO.autopilot()`.

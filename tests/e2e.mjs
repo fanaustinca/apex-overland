@@ -19,10 +19,28 @@ await test('boots to a playable world without console errors', async () => {
   assert(bad.length === 0, bad.slice(0, 5).join('\n'));
 });
 
-await test('18 vehicles and 22 races are defined', async () => {
+await test('18 vehicles and 26 races are defined', async () => {
   const r = await page.evaluate(() => ({ races: AO.game.races.length, ids: AO.game.races.map((x) => x.id), veh: Object.keys(AO.game.profile.upgrades).length }));
-  assert(r.races >= 22, 'races ' + r.races);
-  for (const id of ['canyon-breakout', 'rim-jumper', 'dune-basher', 'timberline-plow', 'muddy-creek', 'logging-camp', 'avalanche-switchbacks', 'peak-descent', 'glacier-ridge', 'pit-escape', 'crusher-circuit', 'haul-road-havoc', 'baja-blast', 'ridgeback-rally', 'frozen-lake', 'apex-hillclimb', 'high-traverse', 'quarry-mx', 'rim-of-the-world']) assert(r.ids.includes(id), 'missing race ' + id);
+  assert(r.races >= 26, 'races ' + r.races);
+  for (const id of ['canyon-breakout', 'rim-jumper', 'dune-basher', 'timberline-plow', 'muddy-creek', 'logging-camp', 'avalanche-switchbacks', 'peak-descent', 'glacier-ridge', 'pit-escape', 'crusher-circuit', 'haul-road-havoc', 'baja-blast', 'ridgeback-rally', 'frozen-lake', 'apex-hillclimb', 'high-traverse', 'quarry-mx', 'rim-of-the-world', 'rim-road-run', 'jump-alley', 'forest-stage', 'west-ridge']) assert(r.ids.includes(id), 'missing race ' + id);
+});
+
+await test('progression: 50 tokens, 3 dailies, collecting a token pays', async () => {
+  const r = await page.evaluate(() => {
+    const P = AO.game.progress, before = AO.game.profile.coins, n0 = AO.game.profile.tokens.length;
+    const t = [...P.tokens].reverse().find((q) => !AO.game.profile.tokens.includes(q.id));   // a road token (the first ones sit on landmarks)
+    AO.game.place(AO.game.player, t.x, t.z, 0); AO.advance(0.5);
+    return { tokens: P.tokens.length, daily: AO.game.profile.daily.ch.length, got: AO.game.profile.tokens.length - n0, paid: AO.game.profile.coins - before, lvl: AO.game.profile.level };
+  });
+  assert(r.tokens === 50, 'tokens ' + r.tokens);
+  assert(r.daily === 3, 'dailies ' + r.daily);
+  assert(r.got === 1 && r.paid >= 250, `token not collected: ${JSON.stringify(r)}`);
+  await page.evaluate(() => AO.game.teleportGarage('hub'));
+});
+
+await test('audio + music engine starts without errors', async () => {
+  const r = await page.evaluate(() => { AO.game.audio.start(); AO.advance(0.5); return { ctx: !!AO.game.audio.ctx, music: !!AO.game.audio.music }; });
+  assert(r.ctx && r.music, JSON.stringify(r));
 });
 
 await test('player spawns on the ground at the hub garage', async () => {

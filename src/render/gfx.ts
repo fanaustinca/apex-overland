@@ -159,7 +159,7 @@ export class Gfx {
   applySettings(s: GfxSettings) {
     this.s = s;
     const r = this.renderer;
-    r.setPixelRatio(Math.min(window.devicePixelRatio, 2) * s.resScale);
+    r.setPixelRatio(Math.min(window.devicePixelRatio, 2) * s.resScale * this.dyn); this.dpr = window.devicePixelRatio || 1;
     r.shadowMap.enabled = s.shadows > 0;
     this.sun.castShadow = s.shadows > 0;
     const ms = [0, 1024, 2048, 4096][s.shadows] || 1024;
@@ -174,13 +174,24 @@ export class Gfx {
     r.shadowMap.needsUpdate = true;
   }
 
+  /** Dynamic resolution: multiplies the user's render scale (game.ts lowers it when the frame rate sags). */
+  dyn = 1;
+  private dpr = 0; private rtTimer = 0;
+  setDyn(k: number) { k = Math.max(0.55, Math.min(1, k)); if (Math.abs(k - this.dyn) < 0.02) return; this.dyn = k; this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2) * this.s.resScale * k); this.resize(true); }
+  /** Cheap per-frame check; the canvas follows the window at once, the render targets are rebuilt once it stops changing. */
   resize(force = false) {
-    const w = window.innerWidth, h = window.innerHeight;
+    const w = Math.max(1, window.innerWidth), h = Math.max(1, window.innerHeight), dpr = window.devicePixelRatio || 1;
     const r = this.renderer;
-    if (!force && this.size.x === w && this.size.y === h) return;
+    if (!force && this.size.x === w && this.size.y === h && this.dpr === dpr) return;
+    if (dpr !== this.dpr) { this.dpr = dpr; r.setPixelRatio(Math.min(dpr, 2) * this.s.resScale * this.dyn); }
     this.size.set(w, h);
     r.setSize(w, h, false);
     this.camera.aspect = w / h; this.camera.updateProjectionMatrix();
+    clearTimeout(this.rtTimer);
+    if (force || !this.sceneRT) this.buildTargets(); else this.rtTimer = window.setTimeout(() => this.buildTargets(), 140);
+  }
+  private buildTargets() {
+    const r = this.renderer, w = this.size.x, h = this.size.y;
     const pr = r.getPixelRatio(), W = Math.floor(w * pr), H = Math.floor(h * pr);
     this.sceneRT?.dispose(); this.aoRT?.dispose(); this.ldrRT?.dispose(); this.rayA?.dispose(); this.rayB?.dispose();
     const msaa = this.s.aa === 'msaa' || this.s.aa === 'msaa+fxaa';

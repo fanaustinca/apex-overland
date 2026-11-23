@@ -33,7 +33,7 @@ export class UI {
         <div class="bars"><div class="nos"><i id="nos"></i><span>NOS</span></div><div class="dmg"><i id="dmg"></i><span>DMG</span></div></div></div>
       <div class="topleft"><div class="coins">⛁ <b id="coins">0</b></div><div class="where"><b id="biome"></b> · <span id="surf"></span></div><div class="veh" id="veh"></div></div>
       <div class="minimap"><canvas width="240" height="240"></canvas><div class="north">N</div></div>
-      <div class="keys">W/S throttle·brake · A/D steer · Space handbrake/hop · Shift nitro · R recover · C camera · M map · G garage · Esc menu</div>
+      <div class="keys">W/S throttle·brake · A/D steer · Space handbrake/hop · Shift nitro · R recover · H horn · C camera · M map · G garage · N music · Esc menu</div>
       <div class="fps" id="fps"></div>`;
     this.root.appendChild(this.hud);
     this.mini = this.hud.querySelector('.minimap canvas')!; this.miniCtx = this.mini.getContext('2d')!;
@@ -49,20 +49,24 @@ export class UI {
   private title() {
     const t = h('div', 'title');
     t.innerHTML = `<div class="logo big">APEX<span>OVERLAND</span></div>
-      <div class="sub">Open-world offroad point-to-point racing · 4 biomes · 18 vehicles · 22 races · 11 garages · 10 landmarks</div>
-      <div class="menu"><button class="go primary">DRIVE</button><button class="races">RACES</button><button class="set">GRAPHICS</button><button class="help">HOW TO PLAY</button></div>
+      <div class="sub">Open-world offroad point-to-point racing · 4 biomes · 18 vehicles · 26 races · 11 garages · 10 landmarks</div>
+      <div class="menu"><button class="go primary">DRIVE</button><button class="races">RACES</button><button class="mp">MULTIPLAYER</button><button class="set">GRAPHICS</button><button class="help">HOW TO PLAY</button></div>
       <div class="foot">Coins: ⛁ ${this.g.profile.coins.toLocaleString()} · Barn finds ${this.g.profile.barns.length}/4 · Terrain textures & rocks: Poly Haven (CC0)</div>`;
     this.root.appendChild(t);
     t.querySelector('.go')!.addEventListener('click', () => this.startGame());
     t.querySelector('.races')!.addEventListener('click', () => { this.startGame(); this.toggleMap(); });
+    t.querySelector('.mp')!.addEventListener('click', () => { this.startGame(); this.g.mode = 'drive'; this.multiplayer(); });
     t.querySelector('.set')!.addEventListener('click', () => this.settings());
     t.querySelector('.help')!.addEventListener('click', () => this.help());
+    const wake = () => { this.g.audio.start(); window.removeEventListener('pointerdown', wake); window.removeEventListener('keydown', wake); };   // title music on first gesture
+    window.addEventListener('pointerdown', wake); window.addEventListener('keydown', wake);
   }
   startGame() {
     this.root.querySelector('.title')?.remove();
     this.g.audio.start();
     this.g.mode = 'drive';
     this.hud.classList.remove('hidden');
+    this.g.progress.claimStreak();
     if (!this.g.profile.found.includes('intro')) { this.g.profile.found.push('intro'); saveProfile(this.g.profile); this.toast('Welcome to APEX OVERLAND! Press M for the map: race starts, garages and fast travel.', 'ok', 7); this.toast('Rumours say four old barns hide the parts of a legendary 12x12…', 'info', 9); }
   }
 
@@ -83,7 +87,7 @@ export class UI {
     this.els.biome.textContent = g.biomeName();
     this.els.surf.textContent = g.surfaceName() + (v.inWater > 0.15 ? ` · water ${v.inWater.toFixed(1)} m` : '');
     this.els.veh.textContent = g.player.def.name;
-    this.els.fps.textContent = `${g.fps.toFixed(0)} fps · ${g.gfx.s.preset}`;
+    this.els.fps.textContent = `${g.fps.toFixed(0)} fps · ${g.gfx.s.preset}${g.gfx.dyn < 0.99 ? ` · ${Math.round(g.gfx.dyn * 100)}% res` : ""}`;
     this.drawMinimap();
     this.updateRaceHud();
     if (this.mapOpen) this.drawMapOverlay();
@@ -93,10 +97,10 @@ export class UI {
     const R = this.g.race;
     if (!R) { this.raceBox.classList.add('hidden'); this.arrow.classList.add('hidden'); this.countdownEl.classList.add('hidden'); return; }
     this.raceBox.classList.remove('hidden');
-    const st = this.g.standings(), pos = st.indexOf(R.player) + 1;
-    this.raceBox.innerHTML = `<div class="rname">${R.def.name}</div><div class="rpos"><b>${pos}</b><small>/${st.length}</small></div>
+    const st = this.g.standings(), ms = this.g.mp.standings(), pos = ms ? ms.findIndex((r) => r.me) + 1 : st.indexOf(R.player) + 1, tot = ms ? ms.length : st.length;
+    this.raceBox.innerHTML = `<div class="rname">${R.def.name}</div><div class="rpos"><b>${pos}</b><small>/${tot}</small></div>
       <div class="rtime">${fmtT(R.player.finished || R.t + R.penalties)}</div><div class="rcp">${R.def.strict ? `GATE ${Math.min(R.player.cp + 1, R.def.cps.length)}/${R.def.cps.length}` : `${(R.player.remain / 1000).toFixed(2)} km TO FINISH · any route`}</div>
-      <ol class="rlist">${st.map((r) => `<li class="${r === R.player ? 'me' : ''}">${r.e.name}<span>${r.finished ? fmtT(r.finished) : ''}</span></li>`).join('')}</ol>`;
+      <ol class="rlist">${(this.g.mp.standings() ?? st.map((r) => ({ name: r.e.name, me: r === R.player, fin: r.finished, rem: r.remain }))).map((r) => `<li class="${r.me ? 'me' : ''}">${r.name}<span>${r.fin ? fmtT(r.fin) : this.g.mp.raceId ? (r.rem / 1000).toFixed(2) + ' km' : ''}</span></li>`).join('')}</ol>`;
     if (R.countdown > 0) { this.countdownEl.classList.remove('hidden'); this.countdownEl.textContent = R.countdown > 3 ? 'READY' : String(Math.ceil(R.countdown)); }
     else if (R.countdown > -1) { this.countdownEl.textContent = 'GO!'; R.countdown -= 0; setTimeout(() => this.countdownEl.classList.add('hidden'), 700); }
     if (!R.player.finished) {
@@ -153,8 +157,12 @@ export class UI {
       ctx.beginPath(); R.def.path.forEach(([x, z], i) => { if (i % 3) return; const [u, v] = this.w2mm(x, z, 1024); i ? ctx.lineTo(u - mx, v - mz) : ctx.moveTo(u - mx, v - mz); }); ctx.stroke();
       R.def.cps.forEach(([x, z], i) => { if (i < R.player.cp) return; const [u, v] = this.w2mm(x, z, 1024); ctx.fillStyle = i === R.player.cp ? '#fff' : i === R.def.cps.length - 1 ? '#4f8' : '#ffb347'; ctx.beginPath(); ctx.arc(u - mx, v - mz, (i === R.player.cp ? 4 : 2.6) / scale * 1.6, 0, Math.PI * 2); ctx.fill(); });
       for (const r of R.racers) if (r !== R.player) { const q = r.e.v.position(); const [u, v] = this.w2mm(q.x, q.z, 1024); ctx.fillStyle = '#ff3b3b'; ctx.beginPath(); ctx.arc(u - mx, v - mz, 2.4, 0, Math.PI * 2); ctx.fill(); }
-    } else {
+    }
+    for (const q of g.mp.positions()) { const [u, v] = this.w2mm(q.p!.x, q.p!.z, 1024); ctx.fillStyle = '#4da3ff'; ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(u - mx, v - mz, 4, 0, Math.PI * 2); ctx.fill(); ctx.stroke(); }
+    if (!R) {
       for (const rd of g.races) { const [u, v] = this.w2mm(rd.path[0][0], rd.path[0][1], 1024); ctx.fillStyle = '#ff7a1a'; ctx.fillRect(u - mx - 2.5, v - mz - 2.5, 5, 5); }
+      const pp = g.player.v.position();
+      for (const t of g.progress?.tokens ?? []) { if (g.profile.tokens?.includes(t.id) || Math.hypot(t.x - pp.x, t.z - pp.z) > 420) continue; const [u, v] = this.w2mm(t.x, t.z, 1024); ctx.fillStyle = '#ffd23a'; ctx.strokeStyle = '#000'; ctx.lineWidth = 1; ctx.beginPath(); ctx.arc(u - mx, v - mz, 3.2, 0, Math.PI * 2); ctx.fill(); ctx.stroke(); }
       for (const gp of g.props.garagePads) { const [u, v] = this.w2mm(gp.pos.x, gp.pos.z, 1024); ctx.fillStyle = '#5be0ff'; ctx.beginPath(); ctx.arc(u - mx, v - mz, 3, 0, Math.PI * 2); ctx.fill(); }
     }
     ctx.restore();
@@ -168,6 +176,7 @@ export class UI {
   }
 
   // ---------------- full map / fast travel ----------------
+  closeAll() { if (this.mapOpen) this.closePanel(true); else if (this.panel) this.closePanel(true); this.g.mode = 'drive'; }
   toggleMap() {
     if (this.mapOpen) { this.closePanel(); return; }
     if (this.g.mode !== 'drive') return;
@@ -276,20 +285,65 @@ export class UI {
     this.g.mode = 'pause';
     const p = this.openPanel('pause small');
     const R = this.g.race;
-    p.innerHTML = `<h2>PAUSED</h2><div class="menu"><button class="resume primary">RESUME</button>${R ? '<button class="restart">RESTART RACE</button><button class="quit">QUIT RACE</button>' : ''}<button class="mapb">MAP & RACES</button><button class="gar">GARAGE (nearest)</button><button class="set">GRAPHICS</button><button class="help">HOW TO PLAY</button></div>`;
+    p.innerHTML = `<h2>PAUSED</h2><div class="menu"><button class="resume primary">RESUME</button>${R ? '<button class="restart">RESTART RACE</button><button class="quit">QUIT RACE</button>' : ''}<button class="mapb">MAP & RACES</button><button class="mpb">MULTIPLAYER${this.g.mp.active ? ` · ${this.g.mp.remotes.size + 1} ONLINE` : ''}</button><button class="gar">GARAGE (nearest)</button><button class="set">GRAPHICS</button><button class="help">HOW TO PLAY</button></div>`;
     p.querySelector('.resume')!.addEventListener('click', () => this.closePanel());
     p.querySelector('.restart')?.addEventListener('click', () => { const id = R!.def.id; this.closePanel(); this.g.startRace(id); });
     p.querySelector('.quit')?.addEventListener('click', () => { this.closePanel(); this.g.endRace(); });
     p.querySelector('.mapb')!.addEventListener('click', () => { this.closePanel(); this.toggleMap(); });
+    p.querySelector('.mpb')!.addEventListener('click', () => this.multiplayer());
     p.querySelector('.gar')!.addEventListener('click', () => { this.closePanel(); if (this.g.race) this.g.endRace(); const n = this.g.nearestGarage(); this.g.teleportGarage(n.id); this.openGarage(); });
     p.querySelector('.set')!.addEventListener('click', () => this.settings());
     p.querySelector('.help')!.addEventListener('click', () => this.help());
+  }
+  // ---------------- multiplayer ----------------
+  multiplayer() {
+    const mp = this.g.mp, back = this.g.mode;
+    this.g.mode = 'pause';
+    const p = this.openPanel('pause mp');
+    const esc = (t: string) => t.replace(/[<>&"]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;' })[c]!);
+    const render = () => {
+      const players = [`${esc(mp.name)} (you${mp.isHost ? ', host' : ''})`, ...[...mp.remotes.values()].map((r) => esc(r.name))];
+      p.innerHTML = `<h2>MULTIPLAYER</h2>
+        <label class="row"><span>Your name</span><input class="mpname" maxlength="16" value="${esc(mp.name)}"></label>
+        ${mp.active ? `<div class="mpstat">${esc(mp.status)}</div>
+          <div class="mpcode">Lobby code <b>${mp.code}</b><button class="copy">COPY</button></div>
+          <h3>Drivers (${players.length}/8)</h3><ul class="mplist">${players.map((n) => `<li>${n}</li>`).join('')}</ul>
+          <p class="hint">${mp.isHost ? 'You are the host: any race you start from the map starts for everyone in the lobby.' : 'The host picks the races. Free-roam together anywhere in the world.'} Press <b>T</b> to chat.</p>
+          <div class="menu"><button class="leave">LEAVE LOBBY</button><button class="primary done">PLAY</button></div>`
+        : `<p class="hint">Drive the same world with up to 7 friends. Host a lobby and share the 5-letter code, or join a friend's.</p>
+          <div class="menu"><button class="primary host">HOST A LOBBY</button></div>
+          <div class="joinrow"><input class="code" maxlength="5" placeholder="CODE" autocomplete="off"><button class="join">JOIN</button></div>
+          <div class="mpstat err"></div><div class="menu"><button class="done">BACK</button></div>`}`;
+      const nameIn = p.querySelector('.mpname') as HTMLInputElement;
+      nameIn.addEventListener('change', () => { mp.setName(nameIn.value.trim()); });
+      const err = (e: unknown) => { const el = p.querySelector('.err'); if (el) el.textContent = (e as Error).message || String(e); else this.toast(String((e as Error).message || e), 'warn'); };
+      p.querySelector('.host')?.addEventListener('click', async (ev) => { (ev.target as HTMLButtonElement).disabled = true; (ev.target as HTMLButtonElement).textContent = 'OPENING…'; try { await mp.host(); render(); } catch (e) { render(); err(e); } });
+      const joinBtn = p.querySelector('.join') as HTMLButtonElement | null, codeIn = p.querySelector('.code') as HTMLInputElement | null;
+      const doJoin = async () => { if (!codeIn || codeIn.value.trim().length < 5) { err(new Error('Enter the 5-letter code')); return; } joinBtn!.disabled = true; joinBtn!.textContent = '…'; try { await mp.join(codeIn.value); render(); } catch (e) { render(); err(e); } };
+      joinBtn?.addEventListener('click', doJoin); codeIn?.addEventListener('keydown', (e) => { if (e.key === 'Enter') doJoin(); });
+      p.querySelector('.copy')?.addEventListener('click', () => { navigator.clipboard?.writeText(mp.code); this.toast('Code copied', 'ok', 1.5); });
+      p.querySelector('.leave')?.addEventListener('click', () => { mp.leave(); render(); });
+      p.querySelector('.done')!.addEventListener('click', () => { mp.setName(nameIn.value.trim()); this.closePanel(true); this.g.mode = back === 'title' ? 'drive' : back === 'pause' || back === 'map' ? 'drive' : back; });
+    };
+    render();
+    const iv = setInterval(() => { if (!p.isConnected) { clearInterval(iv); return; } const list = p.querySelector('.mplist'); if (list && list.children.length !== mp.remotes.size + 1) render(); }, 1000);
+  }
+  /** T: one-line chat box. */
+  openChat() {
+    if (!this.g.mp.active || this.root.querySelector('.chatbox')) return;
+    const box = h('div', 'chatbox', '<input maxlength="120" placeholder="Say something… (Enter to send, Esc to cancel)">');
+    this.root.appendChild(box);
+    const inp = box.querySelector('input')!; inp.focus();
+    inp.addEventListener('keydown', (e) => { e.stopPropagation(); if (e.key === 'Enter') { this.g.mp.chat(inp.value); box.remove(); } else if (e.key === 'Escape') box.remove(); });
+    inp.addEventListener('blur', () => setTimeout(() => box.remove(), 100));
   }
   help() {
     const back = this.g.mode;
     const p = this.openPanel('help');
     p.innerHTML = `<h2>HOW TO PLAY</h2><div class="cols">
-      <div><h3>Driving</h3><p><b>W / ↑</b> throttle · <b>S / ↓</b> brake & reverse · <b>A D</b> steer<br><b>Space</b> handbrake (bike: bunny-hop) · <b>Shift</b> nitrous · <b>R</b> recover<br><b>C</b> chase / far / hood camera · drag mouse to look around · wheel to zoom<br>Gamepad: RT/LT throttle/brake, stick steer, A handbrake, B nitro.</p>
+      <div><h3>Driving</h3><p><b>W / ↑</b> throttle · <b>S / ↓</b> brake & reverse · <b>A D</b> steer<br><b>Space</b> handbrake (bike: bunny-hop) · <b>Shift</b> nitrous · <b>R</b> recover<br><b>H</b> horn · <b>N</b> music on/off · <b>T</b> chat (multiplayer)<br><b>C</b> chase / far / hood camera · drag mouse to look around · wheel to zoom<br>Gamepad: RT/LT throttle/brake, stick steer, A handbrake, B nitro.</p>
+      <h3>Progression</h3><p>Drift, catch air or go flat-out to build a <b>skill chain</b>. Its multiplier grows while you keep it alive, and it banks into coins and XP when you ease off (crash and it's gone). Hunt the <b>50 Apex Tokens</b> (light beams), clear the <b>three daily challenges</b> and keep your daily streak going.</p>
+      <h3>Multiplayer</h3><p>Menu → Multiplayer: host a lobby and share the code, or join a friend's. The host's races start for everyone.</p>
       <h3>World</h3><p>One seamless 5 × 5 km world: Desert Canyon (south), Dense Forest (east), Snowy Mountain (north) and Industrial Quarry (west), meeting at the Central Hub Garage. There are no invisible walls — cut through dunes, forests and cliffs.</p></div>
       <div><h3>Earning coins</h3><p>Races are point to point: waypoints show the GPS route, but only the finish counts — take any line you dare (the frozen-lake slalom and the MX track make you take every gate). Win races, blast through <b>speed traps</b> (yellow on the map), land <b>big jumps</b> (the canyon narrows pay triple) and discover outpost garages.</p>
       <h3>Garage & upgrades</h3><p>Press <b>G</b> near any garage. Engine, suspension, tyres (and compounds for sand, mud and snow), frame/cage, front plow, axles/skid plates, nitrous, snorkel and winch all change both handling and the 3-D model. A <b>Heavy Steel Dozer Plow</b> on a heavyweight or juggernaut lets you carve straight through forests.</p>
@@ -317,12 +371,14 @@ export class UI {
           <label class="row"><span>Anti-aliasing</span><select data-k="aa">${['off', 'fxaa', 'msaa', 'msaa+fxaa'].map((a) => `<option ${s.aa === a ? 'selected' : ''}>${a}</option>`).join('')}</select></label>
           <div class="toggles">${(['tonemap', 'ssao', 'bloom', 'godrays', 'motionBlur'] as const).map((k) => `<label><input type="checkbox" data-t="${k}" ${s[k] ? 'checked' : ''}> ${{ tonemap: 'ACES filmic tone mapping', ssao: 'SSAO (GTAO)', bloom: 'Bloom', godrays: 'Volumetric sun god-rays', motionBlur: 'Motion blur' }[k]}</label>`).join('')}</div>
           <label class="row"><span>Master volume</span><input type="range" min="0" max="1" step="0.05" value="${this.g.audio.volume}" data-vol></label>
+          <label class="row"><span>Music volume (N toggles)</span><input type="range" min="0" max="1" step="0.05" value="${this.g.audio.musicVol}" data-mus></label>
         </div><button class="primary back">DONE</button>`;
       p.querySelectorAll('.presets button').forEach((b) => b.addEventListener('click', () => { Object.assign(s, PRESETS[(b as HTMLElement).dataset.p as keyof typeof PRESETS]); this.g.applySettings({ ...s }); render(); }));
       p.querySelectorAll('input[type=range][data-k]').forEach((el) => el.addEventListener('change', () => { const k = (el as HTMLInputElement).dataset.k as keyof GfxSettings; (s as unknown as Record<string, number>)[k] = +(el as HTMLInputElement).value; s.preset = 'custom'; this.g.applySettings({ ...s }); render(); }));
       p.querySelectorAll('input[type=checkbox]').forEach((el) => el.addEventListener('change', () => { const k = (el as HTMLInputElement).dataset.t as 'ssao'; s[k] = (el as HTMLInputElement).checked; s.preset = 'custom'; this.g.applySettings({ ...s }); }));
       p.querySelector('select')!.addEventListener('change', (e) => { s.aa = (e.target as HTMLSelectElement).value as GfxSettings['aa']; s.preset = 'custom'; this.g.applySettings({ ...s }); });
-      p.querySelector('[data-vol]')!.addEventListener('input', (e) => { this.g.audio.setVolume(+(e.target as HTMLInputElement).value); });
+      p.querySelector('[data-vol]')!.addEventListener('input', (e) => { this.g.audio.setVolume(+(e.target as HTMLInputElement).value); this.g.profile.volume = this.g.audio.volume; saveProfile(this.g.profile); });
+      p.querySelector('[data-mus]')!.addEventListener('input', (e) => { this.g.audio.setMusic(+(e.target as HTMLInputElement).value, true); this.g.profile.musicVol = this.g.audio.musicVol; this.g.profile.musicOn = true; saveProfile(this.g.profile); });
       p.querySelector('.back')!.addEventListener('click', () => { this.closePanel(true); this.g.mode = prevMode === 'pause' ? 'drive' : prevMode; if (prevMode === 'title') this.g.mode = 'title'; });
     };
     render();
