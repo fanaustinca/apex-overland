@@ -159,7 +159,7 @@ export class Gfx {
   applySettings(s: GfxSettings) {
     this.s = s;
     const r = this.renderer;
-    r.setPixelRatio(Math.min(window.devicePixelRatio, 2) * s.resScale * this.dyn); this.dpr = window.devicePixelRatio || 1;
+    r.setPixelRatio(this.basePR() * s.resScale * this.dyn); this.dpr = window.devicePixelRatio || 1;
     r.shadowMap.enabled = s.shadows > 0;
     this.sun.castShadow = s.shadows > 0;
     const ms = [0, 1024, 2048, 4096][s.shadows] || 1024;
@@ -174,16 +174,19 @@ export class Gfx {
     r.shadowMap.needsUpdate = true;
   }
 
+  /** Device pixels per CSS pixel to render at: HiDPI laptop screens would otherwise cost 2-4x the fill for little visible gain
+   *  (post AA cleans the edges); only Ultra goes above 1:1. */
+  basePR() { const d = window.devicePixelRatio || 1; return this.s?.preset === 'ultra' ? Math.min(d, 1.5) : Math.min(d, 1); }
   /** Dynamic resolution: multiplies the user's render scale (game.ts lowers it when the frame rate sags). */
   dyn = 1;
   private dpr = 0; private rtTimer = 0;
-  setDyn(k: number) { k = Math.max(0.55, Math.min(1, k)); if (Math.abs(k - this.dyn) < 0.02) return; this.dyn = k; this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2) * this.s.resScale * k); this.resize(true); }
+  setDyn(k: number) { k = Math.max(0.5, Math.min(1, k)); if (Math.abs(k - this.dyn) < 0.02) return; this.dyn = k; this.renderer.setPixelRatio(this.basePR() * this.s.resScale * k); this.resize(true); }
   /** Cheap per-frame check; the canvas follows the window at once, the render targets are rebuilt once it stops changing. */
   resize(force = false) {
     const w = Math.max(1, window.innerWidth), h = Math.max(1, window.innerHeight), dpr = window.devicePixelRatio || 1;
     const r = this.renderer;
     if (!force && this.size.x === w && this.size.y === h && this.dpr === dpr) return;
-    if (dpr !== this.dpr) { this.dpr = dpr; r.setPixelRatio(Math.min(dpr, 2) * this.s.resScale * this.dyn); }
+    if (dpr !== this.dpr) { this.dpr = dpr; r.setPixelRatio(this.basePR() * this.s.resScale * this.dyn); }
     this.size.set(w, h);
     r.setSize(w, h, false);
     this.camera.aspect = w / h; this.camera.updateProjectionMatrix();

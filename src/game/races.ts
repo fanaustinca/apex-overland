@@ -63,7 +63,7 @@ export function buildRaces(roads: Road[], rivers: RiverLike[] = []): RaceDef[] {
   add('canyon-breakout', 'Canyon Breakout', 0, 'Start on the canyon floor, splash through the river, claw up the cliff trail and blast down the dune track to the Baja road.', 2600,
     B([S('canyon-floor', [-150, cz(-150)]), S('cliff-trail'), S('dune-track')]), 600, { alts: [[[200, cz(200) + 6], [330, cz(330) + 20], [585, 1550]]] });
   add('rim-jumper', 'Rim Jumper', 0, 'Hug the north rim and launch the rock ramps across the canyon narrows. Come up short and you will be climbing out.', 3000,
-    B(OFFROAD['rim-jumper']), 700, { alts: [[[-560, cz(-560) - 150], [-80, cz(-80) - 100], [150, cz(150) - 100]]], rivals: 3 });
+    B(OFFROAD['rim-jumper']), 700, { alts: [[[-560, cz(-560) - 150], [-80, cz(-80) - 165], [150, cz(150) - 150]]], rivals: 3 });
   add('dune-basher', 'Dune Basher', 0, 'No roads, no rules: flat-out across the southern dune sea.', 2200,
     B(OFFROAD['dune-basher']), 800, { alts: [[[-1100, 1555], [1250, 1600]]] });
   add('baja-blast', 'Baja Blast', 0, 'The full Baja run along the far south: wide gravel, big crests and five tabletop jumps. Keep it pinned.', 3600,
@@ -71,6 +71,9 @@ export function buildRaces(roads: Road[], rivers: RiverLike[] = []): RaceDef[] {
   if (roads.some((r) => r.id === 'rim-road'))
     add('rim-road-run', 'Canyon Rim Run', 0, 'Flat-out gravel along the north rim of the canyon, bridge to bridge to bridge: fast sweepers, four big crests and a long drop on your right.', 3300,
       B([S('rim-road')]), 650);
+  if (roads.some((r) => r.id === 'ledge-road'))
+    add('ledge-run', 'Ledge Run', 0, 'Blast along the canyon floor, then climb the shelf road cut into the north wall: a sheer drop on your right all the way to the rim.', 3200,
+      B([S('canyon-floor', [-1000, cz(-1000)], [-250, cz(-250)]), S('ledge-road')]), 500, { minSave: 9999 });
   if (roads.some((r) => r.id === 'jump-alley'))
     add('jump-alley', 'Jump Alley', 0, 'Whoops, whoops, whoops, then a monster tabletop: twice. Straight south from the hub into the desert. Land it or eat sand.', 2400,
       B([S('jump-alley')]), 380, { rivals: 3, minSave: 9999 });
@@ -110,7 +113,7 @@ export function buildRaces(roads: Road[], rivers: RiverLike[] = []): RaceDef[] {
     B([S('glacier-ridge')]), 700);
   if (roads.some((r) => r.id === 'high-traverse'))
     add('high-traverse', 'High Traverse', 2, 'The whole northern range end to end: from the outpost valley behind the Pass Hut, round the back of Mount Apex past the ski club, to the frozen lake.', 4400,
-      B([S('high-traverse')]), 1000, { minSave: 350 });
+      B([S('high-traverse'), S('lake-descent')]), 1000, { minSave: 350 });
   const lake = LAKES.find((l) => l.id === 'frozen');
   if (lake) {
     // slalom around the ice sheet: one and a half laps of a wavy ring
@@ -141,11 +144,11 @@ export function buildRaces(roads: Road[], rivers: RiverLike[] = []): RaceDef[] {
       B([S('west-ridge')]), 500, { minSave: 9999 });
   // ---------------- Cross-biome marathons ----------------
   add('summit-to-sands', 'Summit to Sands', 'marathon', 'Snow to sand: down the switchbacks, through the hub, over the steel bridge and out to the Baja road.', 7000,
-    B([S('hub-north', SUMMIT, [0, -40]), S('hub-south'), [[150, cz(150) - 100], [150, cz(150) + 100]], S('south-desert')]), 1200, { rivals: 5, minSave: 300 });
+    B([S('hub-north', SUMMIT, [0, -40]), S('hub-south'), [[150, cz(150) - 150], [150, cz(150) + 150]], S('south-desert')]), 1200, { rivals: 5, minSave: 300 });
   add('quarry-to-glacier', 'Quarry to Forest', 'marathon', 'Pit A rim to the northern forest via the hub and the deep woods.', 6500,
     B([S('hub-west', [-938, -40], [-40, 0]), [[0, 0]], S('hub-east', [40, 0], [900, 40]), S('forest-north')]), 1200, { rivals: 5, minSave: 250 });
   add('timber-to-canyon', 'Timber to Canyon', 'marathon', 'Logging camp to the Baja road: forest, hub, desert and one very old stone arch.', 6800,
-    B([S('forest-loop', [1520, 300]), S('hub-south', [0, 40], [60, 820]), S('desert-east'), [[1000, cz(1000) - 100], [1000, cz(1000) + 100]], S('desert-east-s')]), 1200, { rivals: 5, minSave: 250 });
+    B([S('forest-loop', [1520, 300]), S('hub-south', [0, 40], [60, 820]), S('desert-east'), [[1000, cz(1000) - 150], [1000, cz(1000) + 150]], S('desert-east-s')]), 1200, { rivals: 5, minSave: 250 });
   add('rim-of-the-world', 'Rim of the World', 'marathon', 'The grand tour of the outer ring: the whole Baja run east, then up the Ridgeback to the frozen lake.', 9000,
     B([S('baja-run'), S('ridgeback', [1940, 1480], [1290, -1730])]), 1400, { rivals: 5, minSave: 400 });
   return races;

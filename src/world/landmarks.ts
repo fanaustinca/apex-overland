@@ -37,6 +37,10 @@ export function buildLandmarks(P: Props, M: Record<string, THREE.Material>) {
   stones(P, M, lm('stones'));
   radar(P, M, lm('radar'));
   ski(P, M, lm('ski'));
+  lookout(P, M, lm('lookout'));
+  dwellings(P, M, lm('dwellings'));
+  mine(P, M, lm('mine'), rockMat);
+  ufo(P, M, lm('ufo'));
 }
 
 /** A boulder sitting on the ground with a box collider (big ones only). */
@@ -461,29 +465,55 @@ function ski(P: Props, M: Record<string, THREE.Material>, l: Landmark) {
     const sg = signTexture('APEX SKI CLUB', 'CHAIRLIFT · SLALOM · JUMP · EST. 1968', '#4a1d12', '#ffe0b0');
     P.add(new THREE.PlaneGeometry(5.6, 1.4), new THREE.MeshStandardMaterial({ map: sg }), x - ux * 4.6, y + 3.0, z - uz * 4.6, up + Math.PI);
   }
-  // chairlift: bottom station, towers up the fall line, cable, chairs, top station
-  const L = 250, oX = 14, N = 6, tops: THREE.Vector3[] = [];
-  for (let k = 0; k <= N; k++) {
-    const s = 6 + k * (L / N), [x, y, z] = at(s, oX), hgt = k === 0 || k === N ? 6 : 11;
-    if (k === 0 || k === N) {
-      P.solid(7, 4, 6, M.concrete, x, y + 1.8, z, up);
-      const wheel = P.add(new THREE.TorusGeometry(2.2, 0.18, 6, 20), M.steel, x, y + hgt, z); wheel.rotation.x = Math.PI / 2;
-      tops.push(new THREE.Vector3(x, y + hgt, z));
-    } else {
-      P.collide(P.add(new THREE.CylinderGeometry(0.35, 0.5, hgt, 8), M.steel, x, y + hgt / 2, z));
-      P.add(new THREE.BoxGeometry(5, 0.35, 0.5), M.steel, x, y + hgt, z, up + Math.PI / 2);
-      tops.push(new THREE.Vector3(x, y + hgt, z));
+  // chairlift (fixed-grip double): the haul rope runs in straight spans between the stations, lifted clear of the ground;
+  // towers are sized to meet it; bullwheel terminals at both ends; chairs evenly spaced on the up and down lines
+  { const L = 250, oX = 14, G = 2.3, s0 = 8, s1 = s0 + L;
+    const [bx, by, bz] = at(s0, oX), [tx, ty, tz] = at(s1, oX);
+    // rope profile: straight line between terminals, raised wherever the slope would bring the chairs within 7 m of the snow
+    const NS = 50, prof: number[] = [];
+    for (let i = 0; i <= NS; i++) { const s = s0 + (L * i) / NS, [, gy] = at(s, oX); prof.push(Math.max(by + 6 + ((ty + 6 - by - 6) * i) / NS, gy + 9.5)); }
+    for (let pass = 0; pass < 3; pass++) for (let i = 1; i < NS; i++) prof[i] = Math.max(prof[i], (prof[i - 1] + prof[i + 1]) / 2);   // convex: no kinks downward
+    const ropeY = (s: number) => { const f = Math.min(NS, Math.max(0, ((s - s0) / L) * NS)), i = Math.min(NS - 1, Math.floor(f)); return prof[i] + (prof[i + 1] - prof[i]) * (f - i); };
+    const rope = (s: number, side: number) => { const [x, , z] = at(s, oX + side); return new THREE.Vector3(x, ropeY(s), z); };
+    // terminals: concrete base, steel frame, roof canopy and the horizontal bullwheel the rope wraps round
+    for (const [s, x, y, z, top] of [[s0, bx, by, bz, false], [s1, tx, ty, tz, true]] as [number, number, number, number, boolean][]) {
+      const ry = ropeY(s);
+      P.solid(8, 1.2, 7, M.concrete, x, y + 0.6, z, up);
+      for (const [e, f] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) P.add(new THREE.BoxGeometry(0.35, ry - y + 1.2, 0.35), M.steel, x + px * e * 3 + ux * f * 2.4, (y + ry + 1.2) / 2, z + pz * e * 3 + uz * f * 2.4, up);
+      P.add(new THREE.BoxGeometry(8.4, 0.35, 6.4), M.corr, x, ry + 1.6, z, up);                                   // roof
+      const wheel = P.add(new THREE.TorusGeometry(G, 0.16, 8, 32), M.dark, x + ux * (top ? 1.2 : -1.2), ry, z + uz * (top ? 1.2 : -1.2)); wheel.rotation.x = Math.PI / 2;
+      for (let k = 0; k < 6; k++) { const a2 = (k / 6) * Math.PI; P.add(new THREE.BoxGeometry(G * 2, 0.08, 0.12), M.steel, x + ux * (top ? 1.2 : -1.2), ry, z + uz * (top ? 1.2 : -1.2), a2); }
+      P.add(new THREE.BoxGeometry(1.6, 1.2, 1.8), top ? M.concrete : red, x - px * 3.6, y + 1.9, z - pz * 3.6, up);   // operator hut
+      blockCollider(P, 8, 2.5, 7, x, y + 1.2, z, up);
     }
-  }
-  for (const side of [-2.1, 2.1]) for (let k = 0; k < tops.length - 1; k++) {
-    const a = tops[k].clone().add(new THREE.Vector3(px * side, -0.3, pz * side)), b = tops[k + 1].clone().add(new THREE.Vector3(px * side, -0.3, pz * side));
-    const len = a.distanceTo(b), cab = P.add(new THREE.CylinderGeometry(0.04, 0.04, len, 4), M.dark, (a.x + b.x) / 2, (a.y + b.y) / 2, (a.z + b.z) / 2);
-    cab.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), b.clone().sub(a).normalize());
-    for (let c = 1; c < 4; c++) {
-      const p = a.clone().lerp(b, c / 4);
-      P.add(new THREE.CylinderGeometry(0.03, 0.03, 2, 4), M.dark, p.x, p.y - 1, p.z);
-      P.add(new THREE.BoxGeometry(1.6, 0.12, 0.7), side > 0 ? red : blue, p.x, p.y - 2.05, p.z, up);
-      P.add(new THREE.BoxGeometry(1.6, 0.7, 0.1), side > 0 ? red : blue, p.x - ux * 0.32, p.y - 1.75, p.z - uz * 0.32, up);
+    // towers every ~42 m: tapered pylon, crossarm, a sheave train under each rope
+    const NT = 5;
+    for (let k = 1; k <= NT; k++) {
+      const s = s0 + (L * k) / (NT + 1), [x, gy, z] = at(s, oX), ry = ropeY(s), hgt = ry - gy + 0.6;
+      P.collide(P.add(new THREE.CylinderGeometry(0.28, 0.55, hgt, 10), M.steel, x, gy + hgt / 2, z));
+      P.add(new THREE.BoxGeometry(G * 2 + 1.2, 0.3, 0.4), M.steel, x, ry + 0.75, z, up + Math.PI / 2);
+      for (const side of [-G, G]) {
+        const sx = x + px * side, sz = z + pz * side;
+        P.add(new THREE.BoxGeometry(0.18, 0.18, 2.6), M.dark, sx, ry + 0.2, sz, up);
+        for (const w of [-0.9, -0.3, 0.3, 0.9]) { const wh = P.add(new THREE.CylinderGeometry(0.2, 0.2, 0.12, 12), M.dark, sx + ux * w, ry + 0.1, sz + uz * w); wh.rotation.z = Math.PI / 2; wh.rotation.y = up; }
+        P.add(new THREE.BoxGeometry(0.1, 0.7, 0.1), M.steel, sx, ry + 0.5, sz);
+      }
+    }
+    // haul rope: short straight pieces following the profile (both lines)
+    for (const side of [-G, G]) for (let i = 0; i < NS; i++) {
+      const a3 = rope(s0 + (L * i) / NS, side), b3 = rope(s0 + (L * (i + 1)) / NS, side), len = a3.distanceTo(b3);
+      const c = P.add(new THREE.CylinderGeometry(0.035, 0.035, len, 4), M.dark, (a3.x + b3.x) / 2, (a3.y + b3.y) / 2, (a3.z + b3.z) / 2);
+      c.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), b3.clone().sub(a3).normalize());
+    }
+    // chairs every 14 m: grip, hanger, seat, back, armrests and a raised safety bar; riders face their direction of travel
+    for (const side of [-G, G]) for (let s = s0 + 7; s < s1 - 5; s += 14) {
+      const p = rope(s, side), face = side > 0 ? up : up + Math.PI, fx = Math.sin(face), fz = Math.cos(face), m = side > 0 ? red : blue;
+      P.add(new THREE.BoxGeometry(0.25, 0.25, 0.5), M.steel, p.x, p.y - 0.1, p.z, face);
+      P.add(new THREE.CylinderGeometry(0.035, 0.035, 2.1, 5), M.steel, p.x, p.y - 1.15, p.z);
+      P.add(new THREE.BoxGeometry(1.3, 0.1, 0.55), m, p.x + fx * 0.2, p.y - 2.2, p.z + fz * 0.2, face);
+      const back = P.add(new THREE.BoxGeometry(1.3, 0.6, 0.08), m, p.x - fx * 0.08, p.y - 1.9, p.z - fz * 0.08); back.rotation.set(-0.15, face, 0, 'YXZ');
+      for (const e of [-0.68, 0.68]) P.add(new THREE.BoxGeometry(0.05, 0.05, 0.6), M.steel, p.x + Math.cos(face) * e + fx * 0.2, p.y - 1.9, p.z - Math.sin(face) * e + fz * 0.2, face);
+      P.add(new THREE.BoxGeometry(1.36, 0.05, 0.05), M.steel, p.x + fx * 0.5, p.y - 1.45, p.z + fz * 0.5, face);
     }
   }
   // slalom gates down the piste
@@ -506,4 +536,174 @@ function ski(P: Props, M: Record<string, THREE.Material>, l: Landmark) {
     for (const e of [-1, 1]) P.solid(0.9, 1.0, 5, M.dark, x + Math.cos(up + 0.4) * e * 1.9, y + 0.55, z - Math.sin(up + 0.4) * e * 1.9, up + 0.4);
     P.solid(4.4, 0.9, 0.4, M.steel, x - Math.sin(up + 0.4) * 2.9, y + 0.6, z - Math.cos(up + 0.4) * 2.9, up + 0.4);
   }
+}
+
+// ---------------- Fire Lookout ----------------
+function lookout(P: Props, M: Record<string, THREE.Material>, l: Landmark) {
+  const y = P.h(l.x, l.z), H = 13, yaw = l.dir, ux = Math.sin(yaw), uz = Math.cos(yaw), px = Math.cos(yaw), pz = -Math.sin(yaw);
+  const timber = new THREE.MeshStandardMaterial({ color: 0x6e4a2c, roughness: 0.85 });
+  const green = new THREE.MeshStandardMaterial({ color: 0x3f5f3a, roughness: 0.7 });
+  const o = (a: number, b: number): [number, number] => [l.x + px * a + ux * b, l.z + pz * a + uz * b];
+  // four splayed legs with X bracing on every face
+  const legs: [number, number][] = [[-3, -3], [3, -3], [3, 3], [-3, 3]];
+  for (const [a, b] of legs) {
+    const [bx, bz] = o(a * 1.35, b * 1.35), [tx, tz] = o(a, b), by = P.h(bx, bz), len = Math.hypot(bx - tx, H + y - by, bz - tz);
+    const leg = P.add(new THREE.BoxGeometry(0.32, len, 0.32), timber, (bx + tx) / 2, (by + y + H) / 2, (bz + tz) / 2);
+    leg.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), new THREE.Vector3(tx - bx, y + H - by, tz - bz).normalize());
+    blockCollider(P, 0.6, len, 0.6, (bx + tx) / 2, (by + y + H) / 2, (bz + tz) / 2);
+  }
+  for (let k = 0; k < 4; k++) for (const lvl of [0.3, 0.65]) {
+    const [a1, b1] = legs[k], [a2, b2] = legs[(k + 1) % 4], f = 1.35 - 0.35 * lvl;
+    const [x1, z1] = o(a1 * f, b1 * f), [x2, z2] = o(a2 * f, b2 * f), yy = y + H * lvl;
+    const br = P.add(new THREE.BoxGeometry(0.14, 0.14, Math.hypot(x2 - x1, z2 - z1)), timber, (x1 + x2) / 2, yy, (z1 + z2) / 2);
+    br.rotation.y = Math.atan2(x2 - x1, z2 - z1);
+  }
+  // cab: deck, glazed room, pyramid roof, catwalk railing
+  P.solid(8.4, 0.3, 8.4, M.planks, l.x, y + H, l.z, yaw);
+  P.solid(5.6, 1.1, 5.6, green, l.x, y + H + 0.7, l.z, yaw);
+  P.add(new THREE.BoxGeometry(5.4, 1.6, 5.4), M.glass, l.x, y + H + 2.05, l.z, yaw);
+  for (const [a, b] of [[-2.75, -2.75], [2.75, -2.75], [2.75, 2.75], [-2.75, 2.75]]) { const [cx, cz2] = o(a, b); P.add(new THREE.BoxGeometry(0.16, 1.7, 0.16), M.white, cx, y + H + 2.05, cz2); }
+  const roof = new THREE.ConeGeometry(4.6, 1.8, 4); roof.rotateY(Math.PI / 4);
+  P.add(roof, green, l.x, y + H + 3.75, l.z, yaw);
+  P.add(new THREE.ConeGeometry(0.12, 1.4, 6), M.steel, l.x, y + H + 5.2, l.z);   // lightning rod
+  for (let k = 0; k < 4; k++) {
+    const [a1, b1] = legs[k], [a2, b2] = legs[(k + 1) % 4], [x1, z1] = o(a1 * 1.38, b1 * 1.38), [x2, z2] = o(a2 * 1.38, b2 * 1.38);
+    const rl = P.add(new THREE.BoxGeometry(0.08, 0.08, Math.hypot(x2 - x1, z2 - z1)), M.white, (x1 + x2) / 2, y + H + 1.05, (z1 + z2) / 2); rl.rotation.y = Math.atan2(x2 - x1, z2 - z1);
+  }
+  // switchback stairs up the way-in side: flights of treads between landings
+  for (let f = 0; f < 4; f++) {
+    const y0 = y + (H / 4) * f, side = f % 2 ? 1 : -1;
+    for (let k = 0; k < 9; k++) { const [sx, sz] = o(side * (2.6 - k * 0.6), 4.6); P.add(new THREE.BoxGeometry(1.1, 0.08, 0.32), M.planks, sx, y0 + (k + 1) * (H / 36), sz, yaw + Math.PI / 2); }
+    const [lx, lz] = o(-side * 3.1, 4.6); P.add(new THREE.BoxGeometry(1.3, 0.12, 1.3), M.planks, lx, y0 + H / 4, lz, yaw);
+  }
+  // picnic table + a fire-danger sign at the foot
+  const [tx, tz] = o(-9, 7), ty = P.h(tx, tz);
+  P.solid(2.2, 0.1, 0.9, M.planks, tx, ty + 0.78, tz, yaw); for (const e of [-0.65, 0.65]) P.add(new THREE.BoxGeometry(2.2, 0.08, 0.3), M.planks, tx + px * e, ty + 0.45, tz + pz * e, yaw);
+  const sg = signTexture('FIRE DANGER TODAY', 'LOW · MODERATE · HIGH · EXTREME', '#5a2a0c', '#ffd27a');
+  const [sx, sz] = o(6, 9), sy = P.h(sx, sz);
+  for (const e of [-1.1, 1.1]) P.add(new THREE.CylinderGeometry(0.08, 0.08, 2.6, 6), M.wood, sx + px * e, sy + 1.3, sz + pz * e);
+  P.add(new THREE.PlaneGeometry(2.4, 1.1), new THREE.MeshStandardMaterial({ map: sg, side: THREE.DoubleSide }), sx, sy + 2.1, sz, yaw);
+}
+
+// ---------------- Cliff Dwellings ----------------
+function dwellings(P: Props, M: Record<string, THREE.Material>, l: Landmark) {
+  const stone = new THREE.MeshStandardMaterial({ color: 0xb98a5e, roughness: 0.95 }), stone2 = new THREE.MeshStandardMaterial({ color: 0xa47650, roughness: 0.95 });
+  const door = new THREE.MeshBasicMaterial({ color: 0x120c08 });
+  const back = l.dir + Math.PI, bx = Math.sin(back), bz = Math.cos(back), px = Math.cos(back), pz = -Math.sin(back);
+  const yF = P.h(l.x, l.z);
+  // rooms stacked against the back of the alcove, in an arc, three storeys high in the middle
+  const room = (a: number, depth: number, lvl: number, w: number, m: THREE.Material) => {
+    const x = l.x + px * a + bx * depth, z = l.z + pz * a + bz * depth, yaw = back + a * 0.018, h = 3.2;
+    const y = Math.max(P.h(x, z), yF) + lvl * h;
+    P.solid(w, h, 4.2, m, x, y + h / 2, z, yaw);
+    // T-shaped doorway on the front face, little window, roof beams poking out
+    const fx = x - bx * 2.12, fz = z - bz * 2.12;
+    P.add(new THREE.PlaneGeometry(0.9, 1.5), door, fx, y + 0.95, fz, yaw + Math.PI);
+    P.add(new THREE.PlaneGeometry(1.6, 0.45), door, fx, y + 1.85, fz, yaw + Math.PI);
+    if (w > 4) P.add(new THREE.PlaneGeometry(0.45, 0.45), door, fx + px * (w / 2 - 0.9), y + 1.9, fz + pz * (w / 2 - 0.9), yaw + Math.PI);
+    for (let k = -1; k <= 1; k++) { const v = P.add(new THREE.CylinderGeometry(0.09, 0.09, 1.2, 6), M.wood, fx - bx * 0.3 + px * k * (w / 3), y + h - 0.25, fz - bz * 0.3 + pz * k * (w / 3)); v.rotation.set(Math.PI / 2, back, 0, 'YXZ'); }
+    return y + h;
+  };
+  const plan: [number, number, number, number][] = [[-16, 22, 0, 5], [-10, 24, 0, 6], [-3.5, 25, 0, 6.5], [3, 25, 0, 6], [9.5, 24, 0, 6], [15.5, 22, 0, 5],
+    [-9, 26.5, 1, 5.5], [-3, 27, 1, 6], [3.2, 27, 1, 5.5], [9, 26.5, 1, 5], [-1, 28.5, 2, 5], [5, 28.5, 2, 4.5]];
+  plan.forEach(([a, d, lv, w], i) => room(a, d, lv, w, i % 3 ? stone : stone2));
+  // a round tower at one end
+  { const x = l.x + px * 21 + bx * 19, z = l.z + pz * 21 + bz * 19, y = P.h(x, z); P.collide(P.add(new THREE.CylinderGeometry(2.4, 2.6, 8, 14), stone2, x, y + 4, z)); }
+  // ladders between storeys
+  for (const [a, d, lv] of [[-6.5, 22.6, 0], [6, 22.6, 0], [2, 24.6, 1]] as [number, number, number][]) {
+    const x = l.x + px * a + bx * d, z = l.z + pz * d * 0 + pz * a + bz * d, y = yF + lv * 3.2;
+    for (const e of [-0.3, 0.3]) { const r = P.add(new THREE.CylinderGeometry(0.05, 0.05, 4.2, 5), M.wood, x + px * e, y + 2, z + pz * e); r.rotation.set(-0.25, back, 0, 'YXZ'); }
+    for (let k = 0; k < 8; k++) P.add(new THREE.CylinderGeometry(0.035, 0.035, 0.66, 4), M.wood, x - bx * (0.45 - k * 0.06), y + 0.3 + k * 0.48, z - bz * (0.45 - k * 0.06), back).rotation.z = Math.PI / 2;
+  }
+  // the kiva: a sunken round ceremonial chamber in the plaza, ladder poking out of its roof
+  { const x = l.x + bx * 8, z = l.z + bz * 8, y = P.h(x, z);
+    const ring = new THREE.CylinderGeometry(5, 5, 1.0, 24, 1, true);
+    P.add(ring, stone, x, y + 0.3, z).material = new THREE.MeshStandardMaterial({ color: 0xa47650, roughness: 0.95, side: THREE.DoubleSide });
+    P.add(new THREE.CylinderGeometry(4.95, 4.95, 0.2, 24), M.darkPlanks, x, y + 0.75, z);
+    blockCollider(P, 9, 1.2, 9, x, y + 0.4, z);
+    for (const e of [-0.3, 0.3]) P.add(new THREE.CylinderGeometry(0.05, 0.05, 3, 5), M.wood, x + px * e, y + 1.6, z + pz * e);
+  }
+  // pottery
+  for (let k = 0; k < 7; k++) { const a = -12 + k * 4, x = l.x + px * a + bx * (17 + (k % 2) * 1.5), z = l.z + pz * a + bz * (17 + (k % 2) * 1.5); P.add(new THREE.SphereGeometry(0.35 + (k % 3) * 0.08, 10, 8), k % 2 ? M.orange : stone2, x, P.h(x, z) + 0.3, z).scale.y = 1.3; }
+}
+
+// ---------------- Old Gold Mine ----------------
+function mine(P: Props, M: Record<string, THREE.Material>, l: Landmark, rockMat: THREE.Material) {
+  const ux = Math.sin(l.dir), uz = Math.cos(l.dir), px = Math.cos(l.dir), pz = -Math.sin(l.dir), yaw = l.dir;
+  const timber = new THREE.MeshStandardMaterial({ color: 0x5a3d24, roughness: 0.9 });
+  const at = (a: number, b: number): [number, number, number] => { const x = l.x + px * a + ux * b, z = l.z + pz * a + uz * b; return [x, P.h(x, z), z]; };
+  // the portal: square-set timbers framing a black adit driven into the hill face at the back of the yard
+  const [mx, , mz] = at(0, -l.r * 0.58), my = P.h(l.x + ux * -l.r * 0.3, l.z + uz * -l.r * 0.3);
+  P.add(new THREE.BoxGeometry(4.4, 4.6, 6), new THREE.MeshBasicMaterial({ color: 0x050403 }), mx - ux * 2.6, my + 2.3, mz - uz * 2.6, yaw);
+  for (const e of [-2.3, 2.3]) P.solid(0.5, 5, 0.5, timber, mx + px * e, my + 2.5, mz + pz * e, yaw);
+  P.solid(5.6, 0.6, 0.7, timber, mx, my + 5.1, mz, yaw);
+  for (let k = 1; k <= 2; k++) { for (const e of [-2.3, 2.3]) P.add(new THREE.BoxGeometry(0.4, 4.6, 0.4), timber, mx + px * e - ux * k * 1.6, my + 2.3, mz + pz * e - uz * k * 1.6, yaw); P.add(new THREE.BoxGeometry(5, 0.4, 0.4), timber, mx - ux * k * 1.6, my + 4.7, mz - uz * k * 1.6, yaw); }
+  const sg = signTexture('BONANZA No. 3', 'DANGER · UNSAFE WORKINGS · KEEP OUT', '#3a1f0e', '#f4c060');
+  P.add(new THREE.PlaneGeometry(4.2, 1.0), new THREE.MeshStandardMaterial({ map: sg }), mx + ux * 0.4, my + 6.0, mz + uz * 0.4, yaw);
+  // rail track out of the adit to the tip, sleepers every 0.8 m, and two ore carts
+  for (let b = -l.r * 0.6; b < l.r * 0.75; b += 0.8) { const [x, y, z] = at(0, b); P.add(new THREE.BoxGeometry(1.6, 0.12, 0.22), timber, x, y + 0.06, z, yaw); }
+  for (const e of [-0.45, 0.45]) { const [x0, y0, z0] = at(e, -l.r * 0.6), [x1, y1, z1] = at(e, l.r * 0.75); const r = P.add(new THREE.BoxGeometry(0.07, 0.1, Math.hypot(x1 - x0, z1 - z0)), M.steel, (x0 + x1) / 2, (y0 + y1) / 2 + 0.17, (z0 + z1) / 2, yaw); void r; }
+  for (const [b, tilt] of [[-4, 0], [9, 0.5]] as [number, number][]) {
+    const [x, y, z] = at(0, b);
+    const cart = P.solid(1.3, 0.9, 1.8, M.rust, x, y + 0.85, z, yaw); cart.rotation.z = tilt * 0.3;
+    for (const e of [-0.5, 0.5]) for (const f of [-0.6, 0.6]) { const w = P.add(new THREE.CylinderGeometry(0.22, 0.22, 0.1, 10), M.dark, x + px * e + ux * f, y + 0.3, z + pz * e + uz * f); w.rotation.set(0, yaw, Math.PI / 2, 'YXZ'); }
+    const ore = rockGeo(0.55, 0.6, 0.4); P.add(ore, rockMat, x, y + 1.35, z, b);
+  }
+  // headframe: a timber A-frame with a sheave wheel, over a shaft collar beside the yard
+  { const [x, y, z] = at(-12, -4);
+    for (const e of [-1.6, 1.6]) { const leg = P.add(new THREE.BoxGeometry(0.35, 13, 0.35), timber, x + px * e, y + 6.3, z + pz * e, yaw); leg.rotation.z = -e * 0.06; P.collide(leg); }
+    const strut = P.add(new THREE.BoxGeometry(0.3, 12, 0.3), timber, x + ux * 3.2, y + 5.8, z + uz * 3.2, yaw); strut.rotation.set(0.28, yaw, 0, 'YXZ');
+    for (const hh of [4, 8, 11.5]) P.add(new THREE.BoxGeometry(3.4 - hh * 0.06, 0.25, 0.25), timber, x, y + hh, z, yaw);
+    const wheel = P.add(new THREE.TorusGeometry(1.1, 0.12, 6, 18), M.rust, x, y + 12.6, z, yaw + Math.PI / 2); void wheel;
+    for (let k = 0; k < 4; k++) P.add(new THREE.BoxGeometry(0.06, 2.2, 0.06), M.rust, x, y + 12.6, z, yaw + Math.PI / 2).rotation.z = (k * Math.PI) / 4;
+    P.solid(3.2, 0.6, 3.2, timber, x, y + 0.3, z, yaw);
+  }
+  // the assay shack with a tin roof, a gold pile glinting by its door, lanterns
+  { const [x, y, z] = at(13, -2); P.solid(5, 3, 4, M.darkPlanks, x, y + 1.5, z, yaw); const r = P.add(new THREE.BoxGeometry(5.8, 0.15, 4.8), M.corr, x, y + 3.25, z, yaw); r.rotation.set(0.18, yaw, 0, 'YXZ');
+    const gold = new THREE.MeshStandardMaterial({ color: 0xffc53a, metalness: 1, roughness: 0.25, emissive: 0x5a3a00, emissiveIntensity: 0.6 });
+    for (let k = 0; k < 9; k++) P.add(rockGeo(0.22 + (k % 3) * 0.08, 0.7, 0.5), gold, x - ux * 3 + px * ((k % 3) - 1) * 0.5, y + 0.2 + Math.floor(k / 3) * 0.18, z - uz * 3 + pz * (Math.floor(k / 3) - 1) * 0.5, k);
+  }
+  for (const e of [-6, 6]) { const [x, y, z] = at(e, l.r * 0.2); P.add(new THREE.CylinderGeometry(0.08, 0.1, 3, 6), timber, x, y + 1.5, z); P.add(new THREE.SphereGeometry(0.22, 10, 8), new THREE.MeshStandardMaterial({ color: 0xffb04a, emissive: 0xff9a2a, emissiveIntensity: 2 }), x, y + 3.1, z); }
+}
+
+// ---------------- Crash Site ----------------
+function ufo(P: Props, M: Record<string, THREE.Material>, l: Landmark) {
+  const ux = Math.sin(l.dir), uz = Math.cos(l.dir), px = Math.cos(l.dir), pz = -Math.sin(l.dir);
+  const hull = new THREE.MeshStandardMaterial({ color: 0xc9ced6, metalness: 1, roughness: 0.22 });
+  const panel = new THREE.MeshStandardMaterial({ color: 0x8b929c, metalness: 0.9, roughness: 0.4 });
+  const glow = new THREE.MeshStandardMaterial({ color: 0x9bffd8, emissive: 0x38ffb0, emissiveIntensity: 3 });
+  const scorch = new THREE.MeshStandardMaterial({ color: 0x1a1512, roughness: 1, transparent: true, opacity: 0.8, depthWrite: false });
+  // the saucer: a lathed double-convex hull with a rim band, a cracked glass dome and a ring of lights, nose-down in its crater
+  const prof: THREE.Vector2[] = [[0, -1.6], [3, -1.5], [6.5, -1.0], [9.2, -0.25], [9.6, 0], [9.2, 0.3], [6.5, 0.9], [4, 1.3], [0, 1.4]].map(([a, b]) => new THREE.Vector2(a, b));
+  const y = P.h(l.x, l.z), tilt = 0.32;
+  const g = new THREE.Group(); g.position.set(l.x, y + 2.3, l.z); g.rotation.set(tilt, l.dir + Math.PI, 0.12, 'YXZ'); P.group.add(g);
+  const add = (geo: THREE.BufferGeometry, m: THREE.Material, x = 0, yy = 0, z = 0) => { const o = new THREE.Mesh(geo, m); o.position.set(x, yy, z); o.castShadow = o.receiveShadow = true; g.add(o); return o; };
+  add(new THREE.LatheGeometry(prof, 48), hull);
+  add(new THREE.TorusGeometry(9.4, 0.18, 8, 64), panel).rotation.x = Math.PI / 2;
+  const dome = add(new THREE.SphereGeometry(3.6, 32, 16, 0, Math.PI * 2, 0, Math.PI / 2), new THREE.MeshStandardMaterial({ color: 0x6fd8c0, metalness: 0.2, roughness: 0.05, transparent: true, opacity: 0.55 }), 0, 1.3, 0);
+  void dome;
+  for (let k = 0; k < 16; k++) { const a = (k / 16) * Math.PI * 2; add(new THREE.SphereGeometry(0.28, 10, 8), glow, Math.cos(a) * 8.6, -0.55, Math.sin(a) * 8.6); }
+  add(new THREE.CylinderGeometry(2.2, 2.6, 0.5, 24), glow, 0, -1.6, 0);
+  blockCollider(P, 17, 3, 17, l.x, y + 0.8, l.z, l.dir, tilt * 0.7);
+  // torn-off panels strewn back along the furrow
+  for (let k = 0; k < 10; k++) {
+    const b = 18 + k * 13 + hash(k, 2, 1) * 6, a = (hash(k, 5, 3) - 0.5) * 12, x = l.x + ux * b + px * a, z = l.z + uz * b + pz * a;
+    const p = P.add(new THREE.BoxGeometry(1 + hash(k, 1, 1) * 2.4, 0.08, 0.8 + hash(k, 3, 3) * 1.6), panel, x, P.h(x, z) + 0.15, z, hash(k, 7, 7) * 6);
+    p.rotation.x = (hash(k, 9, 1) - 0.5) * 0.8;
+  }
+  // scorch marks round the crater
+  for (let k = 0; k < 6; k++) { const a = k * 1.1, r = 6 + k * 3, x = l.x + Math.cos(a) * r, z = l.z + Math.sin(a) * r; const d = P.add(new THREE.CircleGeometry(4 + k * 0.6, 20), scorch, x, P.h(x, z) + 0.12, z); d.rotation.x = -Math.PI / 2; }
+  // the cordon: hazard posts with tape, a floodlight tower, a warning sign
+  const R = l.r - 6, posts: THREE.Vector3[] = [];
+  for (let k = 0; k <= 18; k++) { const a = l.dir + 0.5 + (k / 18) * (Math.PI * 2 - 1.0), x = l.x + Math.sin(a) * R, z = l.z + Math.cos(a) * R, yy = P.h(x, z); P.add(new THREE.CylinderGeometry(0.06, 0.06, 1.3, 6), M.orange, x, yy + 0.65, z); posts.push(new THREE.Vector3(x, yy + 1.1, z)); }
+  for (let k = 0; k < posts.length - 1; k++) { const a = posts[k], b = posts[k + 1], t = P.add(new THREE.BoxGeometry(0.02, 0.08, a.distanceTo(b)), M.yellow, (a.x + b.x) / 2, (a.y + b.y) / 2, (a.z + b.z) / 2); t.rotation.y = Math.atan2(b.x - a.x, b.z - a.z); }
+  { const x = l.x + px * 20 + ux * 14, z = l.z + pz * 20 + uz * 14, yy = P.h(x, z);
+    P.collide(P.add(new THREE.CylinderGeometry(0.12, 0.2, 7, 6), M.steel, x, yy + 3.5, z));
+    for (const e of [-0.7, 0.7]) P.add(new THREE.BoxGeometry(0.8, 0.5, 0.3), new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xfff2d0, emissiveIntensity: 2.5 }), x + px * e, yy + 7.1, z + pz * e, l.dir + Math.PI);
+    P.solid(1.6, 0.9, 2.4, M.yellow, x + ux * 1.5, yy + 0.45, z + uz * 1.5, l.dir);
+  }
+  const sg = signTexture('RESTRICTED SITE', 'NO PHOTOGRAPHY · NOTHING TO SEE HERE', '#202020', '#f2f2f2');
+  const sx = l.x + ux * (l.r + 4) - px * 6, sz = l.z + uz * (l.r + 4) - pz * 6, sy = P.h(sx, sz);
+  for (const e of [-1.2, 1.2]) P.add(new THREE.CylinderGeometry(0.06, 0.06, 2.4, 6), M.steel, sx + px * e, sy + 1.2, sz + pz * e);
+  P.add(new THREE.PlaneGeometry(2.8, 1.1), new THREE.MeshStandardMaterial({ map: sg, side: THREE.DoubleSide }), sx, sy + 2.0, sz, l.dir);
 }

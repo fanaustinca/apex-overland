@@ -24,6 +24,9 @@ const clearZones = (): [number, number, number][] => [
   ...LANDMARKS.map((l) => [l.x, l.z, l.r + (l.id === 'sinkhole' ? 8 : l.id === 'crater' ? 30 : 0)] as [number, number, number]),
   // the sinkhole's ramp cutting
   ...LANDMARKS.filter((l) => l.id === 'sinkhole').flatMap((l) => Array.from({ length: 10 }, (_, k) => [l.x + Math.sin(l.dir) * (l.r + k * 14), l.z + Math.cos(l.dir) * (l.r + k * 14), 14] as [number, number, number])),
+  // the crash furrow and the mine yard stay clear of trees
+  ...LANDMARKS.filter((l) => l.id === 'ufo').flatMap((l) => Array.from({ length: 14 }, (_, k) => [l.x + Math.sin(l.dir) * (l.r + k * 12), l.z + Math.cos(l.dir) * (l.r + k * 12), 13] as [number, number, number])),
+  ...LANDMARKS.filter((l) => l.id === 'mine' || l.id === 'lookout').map((l) => [l.x, l.z, l.r + 18] as [number, number, number]),
 ];
 
 interface Batch { near: THREE.InstancedMesh[]; far: THREE.InstancedMesh[]; geo: TreeGeo }

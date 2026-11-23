@@ -1,19 +1,23 @@
 // Road network: authored control points, splined, graded (max slope) and carved into the heightmap.
-import { canyonZ, BRIDGES_X, NARROWS, PITS, HALF, CELL, N, V, CTRL, CANYON_X0, CANYON_X1, GARAGES, LAKES, LANDMARKS, PEAK, type P2 } from './layout';
+import { canyonZ, BRIDGES_X, NARROWS, PITS, HALF, CELL, N, V, CTRL, CANYON_X0, CANYON_X1, GARAGES, LAKES, LANDMARKS, PEAK, STATION, SLOT_X, slotPts, type P2 } from './layout';
 import { spline, resample, sampleH, carveAlong, distToPolylineFast, type WorldData, APEX, SINK, peakFoot } from './gen';
 import { clamp, smoothstep, Simplex } from '../core/noise';
 
 export type RoadKind = 'asphalt' | 'dirt' | 'gravel' | 'snow' | 'trail' | 'haul';
 /** bumps: [fraction along road, height, kicker length, table length, landing length] (metres) */
 /** ctrl: waypoints. Unless `fixed`, the road between waypoints is routed across the terrain by a grade-aware pathfinder. */
-export interface RoadDef { id: string; kind: RoadKind; width: number; ctrl: P2[]; grade: number; bank?: number; earth?: boolean; fixed?: boolean; bumps?: [number, number, number, number, number][]; corridor?: number; pinEnd?: boolean; even?: boolean }
+export interface RoadDef { id: string; kind: RoadKind; width: number; ctrl: P2[]; grade: number; bank?: number; earth?: boolean; fixed?: boolean; bumps?: [number, number, number, number, number][]; corridor?: number; pinEnd?: boolean; even?: boolean;
+  /** surveyed mountain road: trace a constant-grade line over the natural ground from ctrl[0] up to `to` */
+  trace?: { grade: number; stop: number; rev?: boolean; level?: boolean };
+  /** a shelf road cut into a canyon wall: climbs steadily from the floor at xa to the rim at xb on the given side */
+  ledge?: { xa: number; xb: number; side: 1 | -1; into: number; toD?: number } }
 export interface Road extends RoadDef { pts: P2[]; h: Float32Array; len: number; bridged: Uint8Array; raw?: Float32Array }
 
 /** Bridge spans: deck from rim to rim (the canyon below is not carved). */
 export interface Bridge { id: string; style: 'truss' | 'trestle' | 'arch' | 'beam' | 'timber'; a: P2; b: P2; width: number; ha: number; hb: number; floor?: number; pts?: P2[] }
 
 const cz = canyonZ;
-const RIM = 100;     // bridge ends sit this far from the canyon centreline
+const RIM = 150;     // bridge ends sit this far from the canyon centreline (out on the plateau, past the strata walls)
 export const BRIDGE_DEFS: { id: string; style: Bridge['style']; x: number; width: number }[] = [
   { id: 'trestle', style: 'trestle', x: BRIDGES_X[0], width: 7 },
   { id: 'truss', style: 'truss', x: BRIDGES_X[1], width: 11 },
@@ -59,33 +63,79 @@ export const CABINS = [
 ];
 
 /** Summit Station junction: on the south shoulder of Mount Apex, where the three mountain roads meet. */
-export const SUMMIT: P2 = [-200, -1150];
+export const SUMMIT: P2 = [STATION.x, STATION.z];
 const MX = hairpins(-1650, -2000, -1650, 500, 135, 4);
 /** The spot `out` metres beyond a landmark's edge along its way-in bearing. */
 function lmGate(id: string, out: number): P2 { const l = LANDMARKS.find((q) => q.id === id)!; return [l.x + Math.sin(l.dir) * (l.r + out), l.z + Math.cos(l.dir) * (l.r + out)]; }
-/** The Apex summit road: from the Summit Station junction it spirals twice round Mount Apex, hugging the mountain's
- *  contours and weaving over its spurs and gullies, so every face gets its view and there's real mountainside (not a
- *  stack of benches) between one turn and the next. It curls in to the summit on the south face. Authored (fixed
- *  spline), and the mountain face is fitted to it. */
-const SUMMIT_PATH: P2[] = (() => {
-  const P = (a: number, r: number): P2 => [PEAK.x + Math.sin(a) * r, PEAK.z + Math.cos(a) * r];
-  const face = PEAK.face, turns = 2, r0 = 332, r1 = 92, a0 = face + 0.12, span = turns * Math.PI * 2 - 0.5;
-  const pts: P2[] = [SUMMIT, P(face + 0.03, 386)];
-  let arc = 0, prev = P(a0, r0);
-  const n = 260;
-  for (let i = 0; i <= n; i++) {
-    const u = i / n, a = a0 + span * u;
-    // radius eases in (a touch faster on the first turn, where the mountain is broad)
-    const r = r0 - (r0 - r1) * (0.85 * u + 0.15 * smoothstep(0, 1, u));
-    const env = smoothstep(0, 0.04, u) * (1 - smoothstep(0.92, 1, u));
-    const q = P(a, r + env * (11 * Math.sin(a * 3.0 + 0.7) + 5 * Math.sin(arc / 23 + 1.3)));
-    arc += Math.hypot(q[0] - prev[0], q[1] - prev[1]); prev = q;
-    pts.push(q);
+/** Shelf road up a canyon wall: at each station the road sits where the wall reaches its (steadily climbing) height, a few
+ *  metres further in, so it is carved into the rock face with the drop on the open side. */
+function ledgePath(H: Float32Array, o: { xa: number; xb: number; side: 1 | -1; into: number; toD?: number }): P2[] {
+  const at = (x: number, d: number) => sampleH(H, x, cz(x) + o.side * d);
+  let rimD = 60; while (rimD < 260 && at(o.xb, rimD + 10) - at(o.xb, rimD) > 1.5) rimD += 5;   // where the wall tops out
+  const h0 = at(o.xa, 0) + 1, h1 = at(o.xb, rimD), out: P2[] = [[o.xa, cz(o.xa) + o.side * 8]];
+  for (let x = o.xa + 10; x < o.xb; x += 10) {
+    const hs = h0 + (h1 - h0) * ((x - o.xa) / (o.xb - o.xa));
+    let d = 8; while (d < 300 && at(x, d) < hs) d += 1;
+    out.push([x, cz(x) + o.side * (d + o.into)]);
   }
-  // final pull: curl in onto the plateau edge on the face bearing
-  pts.push(P(face - 0.2, 66), P(face - 0.06, 44), P(face, PEAK.plateau - 8));
-  return pts;
-})();
+  out.push([o.xb, cz(o.xb) + o.side * (rimD + 12)]);
+  if (o.toD && o.toD > rimD + 24) out.push([o.xb + 18, cz(o.xb + 18) + o.side * o.toD]);   // out across the rim to meet the rim road
+  // ease the wiggles (the strata wobble) without pulling the line off the shelf
+  for (let pass = 0; pass < 2; pass++) for (let i = 1; i < out.length - 1; i++) out[i] = [out[i][0], (out[i - 1][1] + 2 * out[i][1] + out[i + 1][1]) / 4];
+  return out;
+}
+
+/** Where the summit road arrives: the plateau edge on Mount Apex's south face. */
+const SUMMIT_GATE: P2 = [PEAK.x + Math.sin(PEAK.face) * (PEAK.plateau - 8), PEAK.z + Math.cos(PEAK.face) * (PEAK.plateau - 8)];
+/**
+ * A surveyed mountain road: from `a`, walk uphill in 5 m steps choosing, among gentle turns, the heading whose climb on the
+ * NATURAL ground is closest to `grade` (on smoothed heights, so it follows spurs and gullies rather than noise). Such a
+ * line hugs the contours and needs almost no earthworks. It keeps clear of landmarks and of its own earlier turns, and
+ * once it is within `stop` of the goal (or level with it) it runs straight in.
+ */
+function traceGrade(H: Float32Array, a: P2, goal: P2, grade: number, stop: number, level = false): P2[] {
+  const at = (x: number, z: number) => (sampleH(H, x, z) * 2 + sampleH(H, x + 6, z) + sampleH(H, x - 6, z) + sampleH(H, x, z + 6) + sampleH(H, x, z - 6)) / 6;
+  const hGoal = sampleH(H, goal[0], goal[1]), STEP = 5, avoid = LANDMARKS.filter((l) => l.id !== 'summit');
+  const dg = (x: number, z: number) => Math.hypot(goal[0] - x, goal[1] - z);
+  // beam search (a greedy walk follows contours into gully heads it can't climb out of)
+  type S = { x: number; z: number; hd: number; h: number; c: number; p: number; hb: number[] };
+  const h0 = at(a[0], a[1]), all: S[] = [{ x: a[0], z: a[1], hd: Math.atan2(goal[0] - a[0], goal[1] - a[1]), h: h0, c: 0, p: -1, hb: [h0, h0, h0] }];
+  let beam = [0], end = -1;
+  for (let it = 0; it < 1500 && end < 0; it++) {
+    const next: S[] = [];
+    for (const si of beam) {
+      const st = all[si];
+      for (let k = -6; k <= 6; k++) {
+        // grade over a 20 m baseline (single 5 m steps are dominated by the ground's small bumps)
+        const th = st.hd + k * 0.055, qx = st.x + Math.sin(th) * STEP, qz = st.z + Math.cos(th) * STEP, qh = at(qx, qz), g = (qh - st.hb[0]) / (STEP * 4);
+        let c = (g - grade) ** 2 * 900 + (k * 0.055) ** 2 * 40 + (g < -0.01 ? 300 * (-0.01 - g) : 0) + 0.22 * (dg(qx, qz) - dg(st.x, st.z)) / STEP;
+        for (const l of avoid) { const dl = Math.hypot(qx - l.x, qz - l.z) - l.r - 35; if (dl < 0) c += -dl * 2; }
+        next.push({ x: qx, z: qz, hd: th, h: qh, c: st.c + c, p: si, hb: [st.hb[1], st.hb[2], st.h] });
+      }
+    }
+    next.sort((u, v) => u.c - v.c);
+    const seen = new Set<number>(); beam = [];
+    for (const n of next) {
+      const key = Math.round(n.x / 7) * 100000 + Math.round(n.z / 7);   // keep the beam diverse
+      if (seen.has(key)) continue; seen.add(key);
+      // arriving only counts for the cheapest route; a costlier one that got there first was cutting corners up the slope
+      const arrived = level ? n.h > hGoal - 5 && dg(n.x, n.z) < stop * 3 : dg(n.x, n.z) < stop || n.h > hGoal - 6;
+      if (arrived && beam.length) continue;
+      all.push(n); beam.push(all.length - 1);
+      if (arrived) { end = all.length - 1; break; }
+      if (beam.length >= 40) break;
+    }
+  }
+  if (end < 0) end = beam[0];
+  if ((globalThis as { TRACE_DBG?: boolean }).TRACE_DBG) { let n = 0, g = 0; for (let i = end; all[i].p >= 0; i = all[i].p) { n++; g += Math.abs(all[i].h - all[all[i].p].h) / STEP; } const ch: S[] = []; for (let i = end; i >= 0; i = all[i].p) ch.push(all[i]); ch.reverse(); console.log(ch.filter((_, i) => i % 20 === 0).map((q, i, A) => i ? `${((q.h - A[i - 1].h) / 100).toFixed(2)}@${Math.round(Math.hypot(q.x - PEAK.x, q.z - PEAK.z))}` : '').join(' ')); console.log('trace steps', n, 'mean |g|', (g / n).toFixed(3), 'h', all[0].h.toFixed(0), '->', all[end].h.toFixed(0)); }
+  const out: P2[] = [];
+  for (let i = end; i >= 0; i = all[i].p) out.push([all[i].x, all[i].z]);
+  out.reverse();
+  // run in to the goal
+  const lx = out[out.length - 1], n = Math.max(2, Math.ceil(dg(lx[0], lx[1]) / 8));
+  for (let i = 1; i <= n; i++) out.push([lx[0] + (goal[0] - lx[0]) * (i / n), lx[1] + (goal[1] - lx[1]) * (i / n)]);
+  return out;
+}
 export const ROAD_DEFS: RoadDef[] = [
   // hub spokes
   { id: 'hub-south', kind: 'asphalt', width: 11, grade: 0.09, ctrl: [[0, 40], [30, 300], [-30, 560], [60, 820], aN(BRIDGES_X[1]), bN(BRIDGES_X[1])] },
@@ -112,8 +162,8 @@ export const ROAD_DEFS: RoadDef[] = [
   { id: 'desert-east', kind: 'dirt', width: 9, grade: 0.16, ctrl: [[60, 820], [480, 870], [760, 880], aN(BRIDGES_X[2]), bN(BRIDGES_X[2])] },
   { id: 'desert-east-s', kind: 'dirt', width: 9, grade: 0.16, ctrl: [bS(BRIDGES_X[2]), aS(BRIDGES_X[2]), [1080, 1380], [1250, 1600], [1300, 1800], [1440, 1910]] },
   { id: 'canyon-floor', kind: 'trail', width: 7, grade: 0.2, bank: 4, earth: false, fixed: true, ctrl: [...Array.from({ length: 33 }, (_, i) => -1150 + i * 40).map((x) => [x, cz(x) + 7 * Math.sin(x / 75)] as P2), [200, cz(200) + 6]] },
-  { id: 'cliff-trail', kind: 'trail', width: 7, grade: 0.15, bank: 5, earth: false, fixed: true, ctrl: [[200, cz(200) + 6], [250, cz(250) + 24], [330, cz(330) + 42], [430, cz(430) + 60], [520, cz(520) + 86], [600, cz(600) + 130]] },
-  { id: 'dune-track', kind: 'trail', width: 8, grade: 0.16, ctrl: [[600, cz(600) + 130], [590, 1450], [585, 1550], [640, 1640], [760, 1760], [800, 1940]] },
+  { id: 'cliff-trail', kind: 'trail', width: 7, grade: 0.2, bank: 3, fixed: true, ctrl: [[200, cz(200) + 6], [600, 0]], ledge: { xa: 200, xb: 600, side: 1, into: 3 } },
+  { id: 'dune-track', kind: 'trail', width: 8, grade: 0.16, ctrl: [[600, cz(600) + 72], [590, 1450], [585, 1550], [640, 1640], [760, 1760], [800, 1940]] },
   // quarry + west
   { id: 'pitA-spiral', kind: 'haul', width: 14, grade: 0.1, fixed: true, ctrl: spiral(PITS[0], 0.25, 1.15) },
   { id: 'pitB-road', kind: 'haul', width: 13, grade: 0.09, ctrl: [[-760, -52], [-725, 90], [-760, 280], [-820, 430], [PITS[1].x + PITS[1].r - 5, PITS[1].z - 40]] },
@@ -131,7 +181,9 @@ export const ROAD_DEFS: RoadDef[] = [
   { id: 'alpine-pass', kind: 'snow', width: 9, grade: 0.13, ctrl: [[-694, -950], [-880, -1060], [-1100, -1120], [-1350, -1210], [-1600, -1300]] },
   // the northern ranges: the High Traverse runs the whole way across the north, from the outpost valley behind the Pass Hut
   // round the back of Mount Apex to the frozen lake; two cols tie it to the Radar Station and the Glacier Ridge
-  { id: 'high-traverse', kind: 'gravel', width: 9, grade: 0.14, ctrl: [[-1600, -1700], [-1250, -1960], [-850, -2050], [-420, -2000], [0, -1960], [420, -1900], [820, -1960], [1290, -1730]] },
+  { id: 'high-traverse', kind: 'gravel', width: 9, grade: 0.14, ctrl: [[-1600, -1700], [-1250, -1960], [-850, -2050], [-420, -2000], [0, -1960], [420, -1900]] },
+  // down to the frozen lake: surveyed along the valley side at a steady grade (traced up from the lake, driven down)
+  { id: 'lake-descent', kind: 'gravel', width: 9, grade: 0.15, fixed: true, ctrl: [[420, -1900], [1290, -1730]], trace: { grade: 0.1, stop: 30, rev: true, level: true } },
   { id: 'radar-col', kind: 'gravel', width: 8, grade: 0.15, ctrl: [lmGate('radar', 6), [-900, -1700], [-850, -2050]] },
   { id: 'north-spur', kind: 'gravel', width: 8, grade: 0.15, ctrl: [[650, -1330], [520, -1600], [420, -1900]] },
   // landmark trails (each starts on a waypoint of an existing road, so it joins it wherever that road now runs)
@@ -144,14 +196,21 @@ export const ROAD_DEFS: RoadDef[] = [
     bumps: [[0.2, 1.8, 16, 8, 22], [0.44, 2.0, 16, 8, 24], [0.71, 1.8, 16, 8, 22], [0.88, 2.2, 16, 10, 24]] },
   { id: 'forest-stage', kind: 'dirt', width: 7, grade: 0.15, corridor: 70, ctrl: [[1230, -150], [1200, -300], [1300, -380], [1250, -480], [1380, -545], [1480, -450], [1440, -330], [1580, -270], [1690, -380], [1790, -290], [1850, -430], [1900, -520], [1940, -560]],
     bumps: [[0.15, 1.6, 12, 4, 16], [0.36, 1.9, 13, 5, 18], [0.58, 1.6, 12, 4, 16], [0.8, 2.0, 13, 6, 18]] },
+  { id: 'ledge-road', kind: 'gravel', width: 7, grade: 0.18, bank: 3, fixed: true, ctrl: [[-250, 0], [470, 0]], ledge: { xa: -250, xb: 470, side: -1, into: 4, toD: 188 } },
   { id: 'jump-alley', kind: 'dirt', width: 10, grade: 0.12, corridor: 60, ctrl: [[-300, 20], [-325, 200], [-285, 380], [-345, 560], [-350, 780]],
-    bumps: [[0.1, 1.2, 7, 0, 7], [0.16, 1.2, 7, 0, 7], [0.22, 1.2, 7, 0, 7], [0.36, 3.0, 16, 12, 26], [0.52, 1.3, 7, 0, 7], [0.58, 1.3, 7, 0, 7], [0.64, 1.3, 7, 0, 7], [0.8, 3.4, 18, 14, 28]] },
+    bumps: [[0.1, 1.2, 7, 0, 7], [0.16, 1.2, 7, 0, 7], [0.22, 1.2, 7, 0, 7], [0.36, 3.0, 16, 12, 26], [0.52, 1.3, 7, 0, 7], [0.58, 1.3, 7, 0, 7], [0.64, 1.3, 7, 0, 7], [0.78, 2.6, 18, 12, 26]] },
   { id: 'west-ridge', kind: 'gravel', width: 8, grade: 0.15, corridor: 80, ctrl: [[-1350, -520], [-1500, -690], [-1420, -870], [-1570, -1010], [-1470, -1150], [-1600, -1300]] },
-  { id: 'summit-road', kind: 'asphalt', width: 10, grade: 0.15, pinEnd: true, even: true, fixed: true, ctrl: SUMMIT_PATH },
+  { id: 'summit-road', kind: 'asphalt', width: 9, grade: 0.13, pinEnd: true, fixed: true, ctrl: [SUMMIT, SUMMIT_GATE], trace: { grade: 0.095, stop: 30 } },
   { id: 'lm-shipwreck', kind: 'trail', width: 6, grade: 0.15, ctrl: [[-720, 1910], lmGate('shipwreck', 10)] },
   { id: 'lm-stones', kind: 'trail', width: 6, grade: 0.15, ctrl: [[1420, -210], lmGate('stones', 6)] },
   { id: 'lm-radar', kind: 'trail', width: 6, grade: 0.15, ctrl: [[-520, -1140], lmGate('radar', 6)] },
   { id: 'lm-ski', kind: 'snow', width: 7, grade: 0.15, ctrl: [[0, -1960], lmGate('ski', 6)] },
+  // ---- secret trails to the new landmarks: faint, narrow and winding, like the barn-find ruts ----
+  { id: 'canyon-floor-east', kind: 'trail', width: 7, grade: 0.2, bank: 4, earth: false, fixed: true, ctrl: [...Array.from({ length: 17 }, (_, i) => 200 + i * 40).map((x) => [x, cz(x) + 6 * Math.sin(x / 70 + 1)] as P2), [SLOT_X, cz(SLOT_X) + 8]] },
+  { id: 'lm-dwellings', kind: 'trail', width: 4.5, grade: 0.3, bank: 3, earth: false, fixed: true, ctrl: [[SLOT_X, cz(SLOT_X) + 8], ...slotPts(), lmGate('dwellings', -8)] },
+  { id: 'lm-lookout', kind: 'trail', width: 4, grade: 0.2, bank: 3, fixed: true, ctrl: [[1330, -760], lmGate('lookout', 3)], trace: { grade: 0.115, stop: 16 } },
+  { id: 'lm-mine', kind: 'trail', width: 3.8, grade: 0.3, bank: 4, ctrl: [[-1830, 120], [-1905, 60], [-1960, 115], [-2025, 45], [-2050, -40], lmGate('mine', 10)] },
+  { id: 'lm-ufo', kind: 'trail', width: 3.8, grade: 0.3, bank: 4, ctrl: [[1940, 1480], [1870, 1440], [1835, 1370], [1760, 1395], lmGate('ufo', 6)] },
   { id: 'lm-sinkhole', kind: 'trail', width: 6, grade: 0.15, ctrl: [[1760, -1330], lmGate('sinkhole', SINK.rampRun)] },
   ...CABINS.map((c) => ({ id: 'ruts-' + c.id, kind: 'trail' as RoadKind, width: 3.4, grade: 0.3, bank: 4, ctrl: [c.from, ...c.via, [c.x + Math.sin(c.yaw) * 13, c.z + Math.cos(c.yaw) * 13] as P2] })),
 ];
@@ -580,7 +639,8 @@ export function buildRoads(data: WorldData, pads: Pad[] = []): { roads: Road[]; 
   };
   const router = new Router(data);
   const addRoad = (def: RoadDef) => {
-    let path: P2[] = def.ctrl;
+    const tr = def.trace, c0 = def.ctrl[0], c1 = def.ctrl[def.ctrl.length - 1];
+    let path: P2[] = def.ledge ? ledgePath(data.height, def.ledge) : tr ? (tr.rev ? traceGrade(data.height, c1, c0, tr.grade, tr.stop, tr.level).reverse() : traceGrade(data.height, c0, c1, tr.grade, tr.stop)) : def.ctrl;
     if (!def.fixed) {
       // junctions: an end that lands near an already-built road snaps exactly onto it
       const ctrl = def.ctrl.slice();
@@ -780,7 +840,7 @@ export function buildRoads(data: WorldData, pads: Pad[] = []): { roads: Road[]; 
   const fillLimit = earthworks(data.height, core, noFill);
   openCuttings(data.height, roads, core, noFill, fillLimit);
   benchLegs(data.height, roads, core, noFill);
-  fitPeak(data.height, roads.find((r) => r.id === 'summit-road'), core, roads);
+  void fitPeak;   // (retired: the summit road is now traced along the natural mountain, the mountain is no longer fitted to it)
   relaxSteps(data.height, core, noFill, PEAK.x, PEAK.z, PEAK.rFace + 260, 1.25, 60);
   // blend junctions: where independently graded roads meet, relax the heights over the road + shoulder cells
   {

@@ -144,9 +144,11 @@ export class Game {
   async init(progress: (msg: string, f: number) => void) {
     const params = new URLSearchParams(location.search);
     this.test = params.has('test');
-    this.audio.volume = this.profile.volume ?? 0.7; this.audio.musicVol = this.profile.musicVol ?? 0.5; this.audio.musicOn = this.profile.musicOn ?? true;
+    this.audio.volume = Math.max(0.5, this.profile.volume ?? 0.8); this.audio.musicVol = this.profile.musicVol ?? 0.55; this.audio.musicOn = this.profile.musicOn ?? true;
     const q = params.get('quality') as keyof typeof PRESETS | null;
-    const settings = q && PRESETS[q] ? { ...PRESETS[q] } : this.profile.settings ?? { ...PRESETS[autoPreset(this.gfx.renderer)] };
+    const saved = this.profile.settingsV === 2 ? this.profile.settings : undefined;
+    const settings = q && PRESETS[q] ? { ...PRESETS[q] } : saved ?? { ...PRESETS[autoPreset(this.gfx.renderer)] };
+    this.profile.settingsV = 2;
     // the world generates in workers while the GPU context settles, the HDRI loads and Rapier's wasm compiles
     progress('Sculpting 26 km² of terrain', 0.04);
     let step = 0;
@@ -657,8 +659,10 @@ function autoPreset(r: THREE.WebGLRenderer): keyof typeof PRESETS {
   const dbg = gl.getExtension('WEBGL_debug_renderer_info');
   const name = dbg ? String(gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL)) : '';
   if (/swiftshader|llvmpipe|software/i.test(name)) return 'potato';
-  if (/intel|mali|adreno|powervr|apple gpu/i.test(name) || /Mobi|Android/i.test(navigator.userAgent)) return 'medium';
-  return 'high';
+  if (/Mobi|Android/i.test(navigator.userAgent) || /mali|adreno|powervr|intel.*(hd|uhd) graphics [0-9]{3}\b/i.test(name)) return 'potato';
+  // High only on known discrete / high-end GPUs; integrated (Intel Iris/UHD, AMD "Radeon Graphics"/Vega, base Apple M) start on Medium
+  if (/rtx|gtx 1[06-9]|gtx 16|radeon rx|radeon pro|arc a|apple m[1-9] (pro|max|ultra)|nvidia/i.test(name) && !/mx[0-9]{3}/i.test(name)) return 'high';
+  return 'medium';
 }
 
 export async function boot() {
@@ -710,7 +714,7 @@ export async function boot() {
   window.AO = api;
   window.dev = makeDev(game, api);
   console.info('%cAPEX OVERLAND%c dev console: type dev.help()', 'color:#ff7a1a;font-weight:bold', 'color:inherit');
-  let last = performance.now(), lowN = 0, hiN = 0;
+  let last = performance.now(), lowN = 0, hiN = 0, floorN = 0;
   const loop = () => {
     const now = performance.now(), dt = Math.min(0.05, (now - last) / 1000); last = now;
     if (!game.manual) { game.update(dt); game.render(dt); }
@@ -719,7 +723,20 @@ export async function boot() {
       game.fps = game.frames / game.fpsT; game.frames = 0; game.fpsT = 0;
       // dynamic resolution: drop render scale quickly when the frame rate sags, creep back up when there's headroom
       if (!game.test && (game.mode === 'drive' || game.mode === 'garage')) {
-        if (game.fps < 46) { if (++lowN >= 2) { game.gfx.setDyn(game.gfx.dyn - 0.08); lowN = 0; } hiN = 0; }
+        if (game.fps < 46) {
+          if (++lowN >= 2) {
+            lowN = 0; hiN = 0;
+            if (game.gfx.dyn > 0.51) game.gfx.setDyn(game.gfx.dyn - 0.08);
+            else if (game.fps < 38 && ++floorN >= 4) {
+              // already at the lowest render scale and still slow: step the preset down (once per level)
+              floorN = 0;
+              const order = ['ultra', 'high', 'medium', 'potato'] as const, i = order.indexOf(game.gfx.s.preset as typeof order[number]);
+              const next = i >= 0 && i < 3 ? order[i + 1] : game.gfx.s.preset === 'custom' ? 'medium' : null;
+              if (next) { game.applySettings({ ...PRESETS[next] }); game.gfx.setDyn(0.8); game.ui.toast(`Graphics lowered to ${next.toUpperCase()} for a smoother frame rate (change it in Settings)`, 'info', 5); }
+            }
+          }
+          hiN = 0;
+        }
         else if (game.fps > 57) { if (++hiN >= 8) { game.gfx.setDyn(game.gfx.dyn + 0.05); hiN = 0; } lowN = 0; }
         else { lowN = 0; hiN = 0; }
       }

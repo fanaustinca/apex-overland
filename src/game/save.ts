@@ -7,7 +7,7 @@ export interface Profile {
   v: number; coins: number; owned: string[]; current: string; upgrades: Record<string, Upgrades>;
   barns: string[]; snake: boolean; best: Record<string, number>; wins: Record<string, number>; found: string[];
   trapBest: Record<string, number>; settings?: GfxSettings; logsSmashed: number; distance: number; volume: number; musicVol?: number; musicOn?: boolean;
-  name?: string; level?: number; xp?: number; tokens?: number[]; daily?: Daily; driftTotal?: number; chainBest?: number;
+  name?: string; settingsV?: number; level?: number; xp?: number; tokens?: number[]; daily?: Daily; driftTotal?: number; chainBest?: number;
 }
 const KEY = 'apex-overland-save-v1';
 export function loadProfile(): Profile {

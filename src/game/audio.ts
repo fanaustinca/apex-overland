@@ -6,15 +6,16 @@ import type { VehicleDef } from '../vehicles/defs';
 import type { VehicleEntity } from './entity';
 import { Music, type Mood } from './music';
 
-interface EngineVoice { on: AudioBufferSourceNode; off: AudioBufferSourceNode; gOn: GainNode; gOff: GainNode; f: BiquadFilterNode; g: GainNode; r0: number; scale: number }
+interface EngineVoice { on: AudioBufferSourceNode; off: AudioBufferSourceNode; gOn: GainNode; gOff: GainNode; f: BiquadFilterNode; g: GainNode; r0: number; scale: number;
+  rasp: OscillatorNode; sub: OscillatorNode; form: BiquadFilterNode; form2: BiquadFilterNode; rg: GainNode; cyl: number }
 type Layout = { cyl: number; uneven: number; tone: [number, number]; tau: number; grit: number; scale: number; r0: number };
 const LAYOUTS: Record<string, Layout> = {
-  thumper: { cyl: 1, uneven: 0, tone: [180, 420], tau: 0.014, grit: 0.5, scale: 1, r0: 3000 },
-  flat4: { cyl: 4, uneven: 0.06, tone: [210, 520], tau: 0.006, grit: 0.35, scale: 1, r0: 3000 },
-  v6: { cyl: 6, uneven: 0, tone: [260, 640], tau: 0.005, grit: 0.25, scale: 1, r0: 3000 },
-  v8: { cyl: 8, uneven: 0.22, tone: [150, 380], tau: 0.007, grit: 0.3, scale: 1, r0: 2500 },
-  diesel: { cyl: 6, uneven: 0.03, tone: [95, 260], tau: 0.011, grit: 0.6, scale: 0.5, r0: 1800 },
-  v12: { cyl: 12, uneven: 0.05, tone: [120, 300], tau: 0.006, grit: 0.45, scale: 0.55, r0: 2000 },
+  thumper: { cyl: 1, uneven: 0, tone: [288, 672], tau: 0.014, grit: 0.5, scale: 1, r0: 3000 },
+  flat4: { cyl: 4, uneven: 0.06, tone: [336, 832], tau: 0.006, grit: 0.35, scale: 1, r0: 3000 },
+  v6: { cyl: 6, uneven: 0, tone: [416, 1024], tau: 0.005, grit: 0.25, scale: 1, r0: 3000 },
+  v8: { cyl: 8, uneven: 0.22, tone: [240, 608], tau: 0.007, grit: 0.3, scale: 1, r0: 2500 },
+  diesel: { cyl: 6, uneven: 0.03, tone: [152, 416], tau: 0.011, grit: 0.6, scale: 0.5, r0: 1800 },
+  v12: { cyl: 12, uneven: 0.05, tone: [192, 480], tau: 0.006, grit: 0.45, scale: 0.55, r0: 2000 },
 };
 function layoutOf(d: VehicleDef): string {
   if (d.special === 'bike') return 'thumper';
@@ -36,14 +37,18 @@ export class Audio {
   private loops?: { rumble: GainNode; turbo: OscillatorNode; tg: GainNode; road: GainNode; rdf: BiquadFilterNode; squeal: GainNode; sqf: BiquadFilterNode; grit: GainNode; gritF: BiquadFilterNode; grain: AudioBufferSourceNode; wind: GainNode; wf: BiquadFilterNode; water: GainNode; amb: GainNode; af: BiquadFilterNode };
   private def?: VehicleDef;
   private lastGear = 1; private lastThrottle = 0; private wasAir = 0; private ambT = 2; private shiftDip = 0;
-  volume = 0.7; musicVol = 0.5; musicOn = true;
+  volume = 0.8; musicVol = 0.55; musicOn = true;
   biome = 4; racing = false;
 
   start() {
     if (this.ctx) { this.ctx.resume(); return; }
     try { this.ctx = new AudioContext({ latencyHint: 'interactive' }); } catch { return; }
     const c = this.ctx;
-    this.master = c.createGain(); this.master.gain.value = this.volume; this.master.connect(c.destination);
+    // master: volume → glue compressor → makeup gain (laptop speakers need the level; the compressor keeps crashes from clipping)
+    this.master = c.createGain(); this.master.gain.value = this.volume;
+    const comp = c.createDynamicsCompressor(); comp.threshold.value = -22; comp.knee.value = 8; comp.ratio.value = 4; comp.attack.value = 0.004; comp.release.value = 0.2;
+    const makeup = c.createGain(); makeup.gain.value = 2.2;
+    this.master.connect(comp).connect(makeup).connect(c.destination);
     this.sfx = c.createGain(); this.sfx.connect(this.master);
     const len = c.sampleRate * 2; this.noiseBuf = c.createBuffer(1, len, c.sampleRate);
     const d = this.noiseBuf.getChannelData(0); for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
@@ -100,15 +105,27 @@ export class Audio {
   }
   private buildEngine(d: VehicleDef) {
     const c = this.ctx!, name = layoutOf(d), L = LAYOUTS[name], [bOn, bOff] = this.engineBuffers(name);
-    if (this.eng) { const old = this.eng; old.g.gain.setTargetAtTime(0, c.currentTime, 0.05); setTimeout(() => { old.on.stop(); old.off.stop(); old.g.disconnect(); }, 400); }
+    if (this.eng) { const old = this.eng; old.g.gain.setTargetAtTime(0, c.currentTime, 0.05); setTimeout(() => { old.on.stop(); old.off.stop(); old.rasp.stop(); old.sub.stop(); old.g.disconnect(); }, 400); }
     const f = c.createBiquadFilter(); f.type = 'lowpass'; f.Q.value = 0.9;
     const g = c.createGain(); g.gain.value = 0;
     const gOn = c.createGain(), gOff = c.createGain();
     const on = c.createBufferSource(), off = c.createBufferSource();
     on.buffer = bOn; off.buffer = bOff; on.loop = off.loop = true;
-    on.connect(gOn).connect(f); off.connect(gOff).connect(f); f.connect(g).connect(this.sfx!);
+    const hp = c.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = name === 'diesel' || name === 'v12' ? 45 : 65; hp.Q.value = 0.5;   // nothing useful lives below this
+    on.connect(gOn).connect(f); off.connect(gOff).connect(f); f.connect(hp).connect(g).connect(this.sfx!);
     on.start(); off.start(0, bOff.duration * 0.37);
-    this.eng = { on, off, gOn, gOff, f, g, r0: L.r0, scale: L.scale };
+    // presence layer: a saw at the firing frequency through fixed exhaust/intake formants (these don't move with RPM, like a
+    // real pipe), so the engine is clearly audible on small laptop/phone speakers that can't reproduce the low pulse train
+    const rasp = c.createOscillator(); rasp.type = 'sawtooth';
+    const sub = c.createOscillator(); sub.type = 'square';
+    const form = c.createBiquadFilter(); form.type = 'bandpass'; form.Q.value = 1.1; form.frequency.value = name === 'diesel' ? 520 : name === 'thumper' ? 900 : 700;
+    const form2 = c.createBiquadFilter(); form2.type = 'peaking'; form2.frequency.value = name === 'diesel' ? 1300 : 1900; form2.Q.value = 2; form2.gain.value = 6;
+    const rg = c.createGain(); rg.gain.value = 0;
+    const sg = c.createGain(); sg.gain.value = L.uneven > 0.1 ? 0.6 : 0.3;
+    const rhp = c.createBiquadFilter(); rhp.type = 'highpass'; rhp.frequency.value = 180; rhp.Q.value = 0.7;
+    rasp.connect(form); sub.connect(sg).connect(form); form.connect(rhp).connect(form2).connect(rg).connect(g);
+    rasp.start(); sub.start();
+    this.eng = { on, off, gOn, gOff, f, g, r0: L.r0, scale: L.scale, rasp, sub, form, form2, rg, cyl: L.cyl };
   }
   setVehicle(d: VehicleDef) { const changed = !this.def || layoutOf(this.def) !== layoutOf(d); this.def = d; if (this.ctx && (changed || !this.eng)) this.buildEngine(d); }
   setVolume(v: number) { this.volume = v; if (this.master) this.master.gain.value = v; }
@@ -125,11 +142,15 @@ export class Audio {
       const rate = Math.max(0.25, (v.rpm / E.r0) * E.scale);
       E.on.playbackRate.setTargetAtTime(rate, t, 0.025); E.off.playbackRate.setTargetAtTime(rate, t, 0.025);
       E.gOn.gain.setTargetAtTime(0.15 + 0.85 * thr, t, 0.05); E.gOff.gain.setTargetAtTime(1 - 0.8 * thr, t, 0.05);
-      E.f.frequency.setTargetAtTime(500 + v.rpm * (0.35 + 0.6 * thr), t, 0.05);
+      E.f.frequency.setTargetAtTime(700 + v.rpm * (0.5 + 0.7 * thr), t, 0.05);
+      const fire = Math.max(18, (v.rpm / 60) * E.cyl / 2 * (E.scale < 1 ? 0.6 : 1));
+      E.rasp.frequency.setTargetAtTime(fire, t, 0.03); E.sub.frequency.setTargetAtTime(fire / 2, t, 0.03);
+      E.form.frequency.setTargetAtTime((E.scale < 1 ? 480 : 650) + v.rpm * 0.08 + 250 * thr, t, 0.08);
+      E.rg.gain.setTargetAtTime(1.5 + 0.5 * thr, t, 0.06);
       if (v.gear !== this.lastGear && v.gear > this.lastGear && v.gear > 1) { this.shiftDip = 0.13; if (d.heavy || e.up.engine >= 4) this.blowoff(); }
       this.lastGear = v.gear;
       this.shiftDip = Math.max(0, this.shiftDip - dt);
-      const vol = active && v.stalled <= 0 ? (0.13 + 0.12 * load) * (this.shiftDip > 0 ? 0.35 : 1) : 0;
+      const vol = active && v.stalled <= 0 ? (0.17 + 0.15 * load) * (this.shiftDip > 0 ? 0.35 : 1) : 0;
       E.g.gain.setTargetAtTime(vol, t, this.shiftDip > 0 ? 0.015 : 0.06);
       // exhaust crackle on a sharp lift at high revs
       if (active && this.lastThrottle > 0.7 && thr < 0.15 && v.rpm > 3600 && !d.heavy) for (let i = 0; i < 3 + Math.floor(Math.random() * 4); i++) setTimeout(() => this.pop(), 40 + i * (50 + Math.random() * 90));

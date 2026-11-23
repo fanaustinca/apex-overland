@@ -71,11 +71,18 @@ export const GARAGES = [
 ];
 
 /** Landmarks: set-piece terrain (and props) out in the open country, worth a detour. Discovering one pays out. */
-export type LandmarkKind = 'crater' | 'boneyard' | 'hoodoos' | 'stunt' | 'sinkhole' | 'summit' | 'shipwreck' | 'stones' | 'radar' | 'ski';
+export type LandmarkKind = 'crater' | 'boneyard' | 'hoodoos' | 'stunt' | 'sinkhole' | 'summit' | 'shipwreck' | 'stones' | 'radar' | 'ski' | 'lookout' | 'dwellings' | 'mine' | 'ufo';
 /** The Apex summit: Mount Apex's top is reshaped into a flat-topped summit with a long, even south face (bearing `face`)
  *  that rises straight out of the Summit Station; the summit road switchbacks up it. The other flanks stay steep and
  *  rugged. `base` is the ground level the face runs down to. */
+/** Summit Station: the col at Mount Apex's south foot where the mountain roads meet. */
+export const STATION = { x: -200, z: -1150, h: 326 };
 export const PEAK = { x: -150, z: -1560, h: 600, base: 335, plateau: 26, face: -0.12, rFace: 430, rBack: 430 };
+/** Lookout Hill: a forested hill north of the Forest Cabin with a fire lookout tower on top. */
+export const HILL = { x: 1450, z: -1035, r: 360, h: 120 };
+/** The side slot canyon off the main canyon's south wall that winds back to the Cliff Dwellings' alcove. */
+export const SLOT_X = 850, SLOT: P2[] = [[0, 0], [12, 50], [-18, 105], [18, 160], [-12, 215], [22, 268], [10, 310]];
+export const slotPts = (): P2[] => SLOT.map(([dx, o]) => [SLOT_X + dx, canyonZ(SLOT_X) + 26 + o] as P2);
 export interface Landmark { id: LandmarkKind; name: string; x: number; z: number; r: number; reward: number; blurb: string; dir: number }
 export const LANDMARKS: Landmark[] = [
   // dir: the bearing (radians, atan2(dx, dz)) of the way in: a trail, ramp or notch faces that way
@@ -88,6 +95,10 @@ export const LANDMARKS: Landmark[] = [
   { id: 'stones', name: 'Standing Stones', x: 1350, z: -420, r: 46, reward: 1100, dir: 0.32, blurb: 'A ring of mossy monoliths deep in the woods, with two great trilithon gates to drive through.' },
   { id: 'radar', name: 'Radar Station', x: -850, z: -1400, r: 56, reward: 1500, dir: 0.9, blurb: 'Abandoned early-warning station on a snowy hilltop: radomes, a giant dish and the best view of Mount Apex.' },
   { id: 'ski', name: 'Apex Ski Club', x: -150, z: -1945, r: 42, reward: 1300, dir: 1.57, blurb: 'A ski area on the north face of Mount Apex: a chairlift, slalom gates and a ski jump you can launch a truck off.' },
+  { id: 'lookout', name: 'Fire Lookout', x: HILL.x, z: HILL.z, r: 22, reward: 1400, dir: 2.6, blurb: 'A fire lookout tower on top of Lookout Hill. Wind your way up the forest trail and climb the stairs for the view.' },
+  { id: 'dwellings', name: 'Cliff Dwellings', x: SLOT_X + 10, z: canyonZ(SLOT_X) + 26 + 340, r: 34, reward: 1700, dir: Math.PI, blurb: 'Ancient stone rooms built into an alcove at the end of a hidden slot canyon off the south wall.' },
+  { id: 'mine', name: 'Old Gold Mine', x: -2160, z: -80, r: 40, reward: 1500, dir: Math.PI / 2, blurb: 'An abandoned gold mine in the western hills: a timber portal, ore carts and a creaking headframe.' },
+  { id: 'ufo', name: 'Crash Site', x: 1630, z: 1290, r: 48, reward: 2000, dir: -2.2, blurb: 'Something came down hard in the woods. Follow the scorched furrow to whatever it was.' },
   { id: 'sinkhole', name: 'The Sinkhole', x: 1910, z: -1640, r: 72, reward: 1800, dir: -0.45, blurb: 'A 35 m deep cenote with a turquoise pool. One ramp down, one way out.' },
 ];
 
@@ -95,9 +106,9 @@ const cz = (x: number) => canyonZ(x);
 /** Off-road racing lines: mesas are eroded out of a corridor along these so every race is drivable. */
 export const OFFROAD: Record<string, P2[][]> = {
   'rim-jumper': [
-    [[-900, cz(-900) - 120], [-650, cz(-650) - 110], [-560, cz(-560) - 150], [-450, cz(-450) - 150], [-350, cz(-350) - 75], [-350, cz(-350) - 30]],
-    [[-350, cz(-350) + 60], [-200, cz(-200) + 110], [40, cz(40) + 120], [125, cz(125) + 150], [150, cz(150) + 125], [150, cz(150) + 100]],
-    [[150, cz(150) - 100], [150, cz(150) - 125], [190, cz(190) - 150], [300, cz(300) - 140], [470, cz(470) - 110], [560, cz(560) - 75], [560, cz(560) - 30]],
+    [[-900, cz(-900) - 175], [-650, cz(-650) - 170], [-560, cz(-560) - 165], [-450, cz(-450) - 150], [-350, cz(-350) - 75], [-350, cz(-350) - 30]],
+    [[-350, cz(-350) + 60], [-200, cz(-200) + 160], [40, cz(40) + 170], [125, cz(125) + 190], [150, cz(150) + 175], [150, cz(150) + 150]],
+    [[150, cz(150) - 150], [150, cz(150) - 175], [190, cz(190) - 190], [300, cz(300) - 175], [470, cz(470) - 140], [560, cz(560) - 75], [560, cz(560) - 30]],
     [[560, cz(560) + 60], [700, cz(700) + 125], [860, cz(860) + 160]],
   ],
   'dune-basher': [[[-1100, 1555], [-780, 1560], [-500, 1640], [-250, 1580], [50, 1560], [300, 1640], [600, 1580], [900, 1640], [1250, 1600]]],

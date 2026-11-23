@@ -1,6 +1,6 @@
 // Procedural world generation. Pure data (no DOM / three) so it runs in a Web Worker and in node tools.
 import { Simplex, smoothstep, clamp, lerp } from '../core/noise';
-import { WORLD, OFFROAD, PASSES, LAKES, type River, NARROWS, N, V, CELL, HALF, CTRL, RIVERS, PITS, HUB, CANYON_X0, CANYON_X1, CANYON_FLOOR, CANYON_WATER, canyonZ, biomeWeights, hubFactor, LANDMARKS, PEAK, type Landmark, type P2 } from './layout';
+import { WORLD, OFFROAD, PASSES, LAKES, type River, NARROWS, N, V, CELL, HALF, CTRL, RIVERS, PITS, HUB, CANYON_X0, CANYON_X1, CANYON_FLOOR, CANYON_WATER, canyonZ, biomeWeights, hubFactor, LANDMARKS, PEAK, STATION, HILL, slotPts, type Landmark, type P2 } from './layout';
 
 export const SEED = 1337;
 
@@ -58,7 +58,15 @@ export function desertH(x: number, z: number): number {
   return h;
 }
 export function forestH(x: number, z: number): number {
-  return 34 + 42 * sx.fbm(x / 820 + 3, z / 820 + 1, 5) + 9 * s2.ridged(x / 260, z / 260, 4) + 2.5 * s3.fbm(x / 50, z / 50, 2);
+  // broad swells + rolling hills (so the forest roads rise and fall) + ridged detail
+  let h = 34 + 42 * sx.fbm(x / 820 + 3, z / 820 + 1, 5) + 16 * sx.fbm(x / 420 + 9, z / 420 - 5, 3) + 9 * s2.ridged(x / 260, z / 260, 4) + 2.5 * s3.fbm(x / 50, z / 50, 2);
+  // Lookout Hill: a rounded, irregular forested hill with a few spurs
+  const hd = Math.hypot(x - HILL.x, z - HILL.z);
+  if (hd < HILL.r * 1.5) {
+    const b = Math.atan2(x - HILL.x, z - HILL.z), R = HILL.r * (1 + 0.2 * s2.n(Math.cos(b) * 1.4 + 21, Math.sin(b) * 1.4 - 6)), t = Math.min(1, hd / R);
+    h += HILL.h * Math.pow(1 - smoothstep(0, 1, t), 1.15) + 11 * (s2.ridged(x / 130 + 4, z / 130, 3) - 0.4) * Math.sin(Math.PI * t) * smoothstep(0.08, 0.25, t);
+  }
+  return h;
 }
 export const APEX = { x: -150, z: -1560, h: 500 };
 /** Ridged multifractal like Simplex.ridged, but each octave's crest is rounded (smoothed |n|): mountain ridges with
@@ -129,28 +137,51 @@ export function baseRows(j0: number, j1: number): Float32Array {
       // hub valley
       const hf = hubFactor(x, z);
       if (hf > 0) h = lerp(h, HUB.h + 1.2 * s3.fbm(x / 90, z / 90, 2), hf);
-      // canyon
+      // canyon: cut into a broad sandstone plateau that rises toward the rims, so it is 110-140 m deep; the walls are layered
+      // strata (sheer cliff bands, ledges and talus aprons) and it stays wide enough for the sun to reach the floor
       if (x > CANYON_X0 - 50 && x < CANYON_X1 + 50) {
         const cz = canyonZ(x), dcz = (canyonZ(x + 1) - canyonZ(x - 1)) / 2;
         const d = Math.abs(z - cz) / Math.sqrt(1 + dcz * dcz);
         const n = s2.fbm(x / 140, 3.3, 2);
         const nar = 1 - 0.68 * (Math.exp(-(((x - NARROWS[0]) / 70) ** 2)) + Math.exp(-(((x - NARROWS[1]) / 70) ** 2)));
-        const half = (30 + 9 * n) * nar, wall = (44 + 14 * s3.fbm(x / 170, 9.1, 2)) * (0.35 + 0.65 * nar);
+        const taper = smoothstep(CANYON_X0, CANYON_X0 + 260, x) * (1 - smoothstep(CANYON_X1 - 260, CANYON_X1, x));
+        // the plateau: up to +62 m within ~250 m of the rims, easing back into the desert by ~650 m
+        const lift = 62 * taper * (1 - smoothstep(230, 650, d)) * (0.85 + 0.3 * s3.fbm(x / 300, z / 300, 2));
+        h += lift;
+        const half = (38 + 10 * n) * nar, depth = Math.max(10, h - CANYON_FLOOR), wall = (0.78 + 0.25 * s3.fbm(x / 170, 9.1, 2)) * depth * Math.pow(nar, 1.25);   // the narrows are sheer slots (the rim ramps jump them)
         if (d < half + wall) {
-          const taper = smoothstep(CANYON_X0, CANYON_X0 + 260, x) * (1 - smoothstep(CANYON_X1 - 260, CANYON_X1, x));
           let floor = CANYON_FLOOR + 0.6 + 0.4 * s3.fbm(x / 30, z / 30, 2);
           const ch = Math.abs(z - cz) / 10;
           if (ch < 1.4) floor = Math.min(floor, CANYON_WATER - 0.6 + Math.min(1, ch * ch) * 0.9);
           let target: number;
           if (d < half) target = floor;
           else {
-            const t = (d - half) / wall;
-            const pr = 0.55 * terrace(t, 4, 0.18) + 0.45 * Math.pow(t, 0.7);
+            // strata: band boundaries wobble along the canyon; each band is a talus apron, a sheer cliff and a ledge on top
+            const t = clamp((d - half) / wall + 0.035 * s3.fbm(x / 90, d / 45, 2), 0, 1);
+            const bands = 5, sb = t * bands, i = Math.floor(sb), f = sb - i;
+            const band = f < 0.35 ? 0.3 * (f / 0.35) ** 1.6 : f < 0.62 ? 0.3 + 0.62 * smoothstep(0.35, 0.62, f) : 0.92 + 0.08 * (f - 0.62) / 0.38;
+            const pr = 0.85 * Math.min(1, (i + band) / bands) + 0.15 * Math.pow(t, 0.8);
             target = lerp(floor, h, pr);
           }
           const carved = lerp(h, target, taper);
           if (carved < h) h = carved;
         }
+      }
+      // the hidden side slot to the Cliff Dwellings: a winding gorge rising gently from the canyon floor to a box-canyon alcove
+      if (x > SLOT_X0 && x < SLOT_X1 && z > SLOT_Z0 && z < SLOT_Z1) {
+        let best = 1e9, along = 0, acc = 0;
+        for (let k = 0; k < SLOT_P.length - 1; k++) {
+          const [ax, az] = SLOT_P[k], [bx, bz] = SLOT_P[k + 1], vx = bx - ax, vz = bz - az, L = Math.hypot(vx, vz);
+          const u = clamp(((x - ax) * vx + (z - az) * vz) / (L * L), 0, 1), dd = Math.hypot(ax + vx * u - x, az + vz * u - z);
+          if (dd < best) { best = dd; along = acc + u * L; }
+          acc += L;
+        }
+        const endD = Math.hypot(x - SLOT_P[SLOT_P.length - 1][0], z - SLOT_P[SLOT_P.length - 1][1]);
+        const fl = CANYON_FLOOR + 1 + Math.min(acc, along) * 0.072 + 0.4 * s3.fbm(x / 20, z / 20, 2);
+        const halfW = 10 + 26 * (1 - smoothstep(30, 70, endD));                  // widens into the alcove at the end
+        const wallD = Math.min(best - halfW, endD < 70 ? endD - 34 : 1e9);
+        const tgt = wallD <= 0 ? fl : fl + Math.pow(wallD, 0.92) * 1.55 * (1 + 0.15 * s3.fbm(x / 25, z / 25, 2));
+        if (tgt < h) h = tgt;
       }
       // quarry pits
       for (const p of PITS) {
@@ -165,7 +196,9 @@ export function baseRows(j0: number, j1: number): Float32Array {
           h = Math.min(h, quarryH(p.x + dx * 0.0, p.z) - depth + 0.4 * s3.fbm(x / 20, z / 20, 2));
         }
       }
-      { const dx = x - PEAK.x, dz = z - PEAK.z; if (dx * dx + dz * dz < (PEAK.rFace * 1.12) ** 2) h = peakH(x, z, h); }
+      { const dx = x - PEAK.x, dz = z - PEAK.z; if (dx * dx + dz * dz < (PEAK.rFace * 1.5) ** 2) h = peakH(x, z, h); }
+      // the Summit Station col: a broad natural saddle at the mountain's foot (the roads meet on open ground, not in a pit)
+      { const d = Math.hypot(x - STATION.x, z - STATION.z); if (d < 260) h = lerp(h, Math.min(h, STATION.h + 0.04 * d + 3 * s3.fbm(x / 60, z / 60, 2)), Math.pow(1 - smoothstep(40, 260, d), 1.5)); }
       for (const l of LANDMARKS) { const dx = x - l.x, dz = z - l.z; if (dx * dx + dz * dz < (l.r + 220) ** 2) h = landmarkH(l, x, z, h); }
       // world border mountains
       const e = smoothstep(HALF - 420, HALF, Math.max(Math.abs(x), Math.abs(z)));
@@ -194,31 +227,44 @@ export function landmarkLevel(l: Landmark): number {
   if (v === undefined) { v = 0; let n = 0; for (let a = 0; a < 16; a++) for (const f of [0, 0.4, 0.8]) { v += biomeH(l.x + Math.cos(a * 0.39) * l.r * f, l.z + Math.sin(a * 0.39) * l.r * f); n++; } v /= n; lmBase.set(l.id, v); }
   return v;
 }
+const SLOT_P = slotPts(), SLOT_X0 = Math.min(...SLOT_P.map((p) => p[0])) - 90, SLOT_X1 = Math.max(...SLOT_P.map((p) => p[0])) + 90, SLOT_Z0 = Math.min(...SLOT_P.map((p) => p[1])) - 80, SLOT_Z1 = Math.max(...SLOT_P.map((p) => p[1])) + 90;
 /** Sinkhole geometry shared with the props and pond code. */
 export const SINK = { floorR: 46, depth: 36, poolR: 27, poolDepth: 4.5, rampW: 6, rampRun: 125 };
 /** The Apex summit: a flat-topped summit with a long, even south-west face (the road's switchbacks) and steep ribbed flanks. */
 const SKI_LM = LANDMARKS.find((l) => l.id === 'ski');
 /** The Apex summit's footprint radius toward (x, z), and how much that bearing faces the road side (1) vs round the back (0). */
+/** Mount Apex's footprint radius for a bearing: an irregular massif (broad lobes + a few long spurs), not a cone. */
 export function peakFoot(x: number, z: number): { R: number; fw: number } {
   const bear = Math.atan2(x - PEAK.x, z - PEAK.z);
   let df = bear - PEAK.face; if (df > Math.PI) df -= Math.PI * 2; if (df < -Math.PI) df += Math.PI * 2;
   const fw = Math.pow(Math.max(0, Math.cos(df)), 1.6);
-  return { R: (PEAK.rBack + (PEAK.rFace - PEAK.rBack) * fw) * (1 + 0.09 * s2.n(Math.cos(bear) * 1.7 + 11, Math.sin(bear) * 1.7 - 4)), fw };
+  const lobes = 0.14 * s2.n(Math.cos(bear) * 1.3 + 11, Math.sin(bear) * 1.3 - 4) + 0.06 * s3.n(Math.cos(bear) * 3 + 2, Math.sin(bear) * 3 + 7);
+  let spur = 0;
+  for (const [b0, k] of [[0.9, 0.22], [2.4, 0.16], [-1.2, 0.2], [-2.6, 0.12]]) { let d = bear - b0; if (d > Math.PI) d -= Math.PI * 2; if (d < -Math.PI) d += Math.PI * 2; spur += k * Math.exp(-((d / 0.22) ** 2)); }
+  // (the south face keeps its foot where it was: the Summit Station and its three roads sit at the base, not dug into it)
+  return { R: (PEAK.rBack + (PEAK.rFace - PEAK.rBack) * fw) * (1 + (lobes + spur) * (1 - 0.9 * fw)) * (1 - 0.1 * fw), fw };
 }
+/** Mount Apex: a concave, eroded peak. Radial spurs and gullies run down the fall line all the way round (the summit road
+ *  is traced along this ground, so it weaves in and out over them like a real mountain road), steep near the top, easing
+ *  out into a long foot. */
 function peakH(x: number, z: number, h: number): number {
   const d = Math.hypot(x - PEAK.x, z - PEAK.z);
-  const { R, fw } = peakFoot(x, z);                                          // fw: 1 on the road face, 0 round the back
+  const { R } = peakFoot(x, z);
   if (d >= R) return h;
   const t = clamp((d - PEAK.plateau) / (R - PEAK.plateau), 0, 1);
-  // the old ground under the mountain gives way to a smooth apron toward the middle (no stray crags on the road face)
-  const apron = lerp(h, PEAK.base + 8 * s3.fbm(x / 140, z / 140, 2), 1 - smoothstep(0.6 * R, R, d));
-  const f = 1 - (0.7 * t + 0.3 * smoothstep(0, 1, t));                       // near-even slope, a rounded shoulder and foot
+  const apron = lerp(h, PEAK.base + 8 * s3.fbm(x / 140, z / 140, 2), 1 - smoothstep(0.55 * R, R, d));
+  const f = Math.pow(1 - smoothstep(0, 1, t), 0.72);   // a rounded summit dome, steepest mid-flank, easing out into a long foot
   // (no rock ribs down the ski piste: a groomed corridor up the fall line from the Apex Ski Club to the shoulder)
   const sk = SKI_LM, along = sk ? ((x - sk.x) * (PEAK.x - sk.x) + (z - sk.z) * (PEAK.z - sk.z)) / Math.hypot(PEAK.x - sk.x, PEAK.z - sk.z) : -1;
   const piste = sk && along > -30 && along < 320 ? 1 - smoothstep(26, 60, Math.abs(((x - sk.x) * (PEAK.z - sk.z) - (z - sk.z) * (PEAK.x - sk.x)) / Math.hypot(PEAK.x - sk.x, PEAK.z - sk.z))) : 0;
-  const ribs = (1 - fw) * 34 * s2.ridged(x / 130 + 5, z / 130, 4) * Math.sin(Math.PI * t) * (1 - piste);
+  // radial drainage: features stretched down the fall line (noise sampled on a ring that drifts slowly with distance)
+  const bear = Math.atan2(x - PEAK.x, z - PEAK.z), u = d / 320;
+  const ring = 0.9 + 2.0 * u;   // gullies keep a similar width in metres from the shoulder to the foot
+  const cx = Math.cos(bear) * ring + u * 0.7, cz = Math.sin(bear) * ring - u * 0.5;
+  const env = Math.pow(Math.sin(Math.PI * Math.min(1, t * 1.15)), 0.8) * smoothstep(0.03, 0.14, t);
+  const spurs = (15 * (s2.ridged(cx + 5, cz, 3) - 0.45) + 8 * s3.fbm(cx * 2.2 - 3, cz * 2.2 + 8, 2)) * env * (1 - 0.8 * piste);
   const grain = 3 * s3.fbm(x / 45, z / 45, 2) * smoothstep(0, 0.12, t);
-  return lerp(apron, PEAK.h, f) + ribs + grain;
+  return lerp(apron, PEAK.h, f) + spurs + grain;
 }
 /** Landmark terrain: crater bowl, flattened boneyard with a crash gouge, sunken badlands, stunt-park earthworks, cenote. */
 function landmarkH(l: Landmark, x: number, z: number, h: number): number {
@@ -232,6 +278,24 @@ function landmarkH(l: Landmark, x: number, z: number, h: number): number {
       const along = dx * ux + dz * uz, lat = dx * uz - dz * ux;         // hull lies across the way in
       t += 5.8 * Math.exp(-(((lat - 10) / 8) ** 2)) * (1 - smoothstep(20, 34, Math.abs(along)));
       t += 2.2 * Math.exp(-(((lat + 20) / 16) ** 2)) * (1 - smoothstep(10, 45, Math.abs(along + 8)));
+      return t;
+    }
+    case 'lookout': return lerp(h, hc + 0.25 * s3.fbm(x / 20, z / 20, 2), 1 - smoothstep(R * 0.6, R + 28, d));
+    case 'dwellings': return h;   // carved with the slot canyon
+    case 'mine': {
+      // a level yard in front of a hillside; the portal is driven into the steep face at the back of the yard
+      const along = dx * ux + dz * uz, base = lerp(h, hc + 0.3 * s3.fbm(x / 25, z / 25, 2), 1 - smoothstep(R * 0.8, R + 60, d));
+      const hx = l.x - ux * 85, hz = l.z - uz * 85, hdist = Math.hypot(x - hx, z - hz);
+      const mound = 58 * Math.pow(1 - smoothstep(25, 170, hdist), 1.2) + 6 * s2.ridged(x / 40, z / 40, 3) * (1 - smoothstep(60, 170, hdist));
+      return Math.max(base, hc + mound * smoothstep(-R * 0.3, -R * 0.62, along));
+    }
+    case 'ufo': {
+      // a scorched furrow ploughed in from the way-in side, ending in a shallow impact crater with a thrown-up rim
+      const along = dx * ux + dz * uz, lat = dx * uz - dz * ux;
+      let t = lerp(h, hc + 0.4 * s3.fbm(x / 30, z / 30, 2), 1 - smoothstep(R, R + 90, d));
+      const fw = 7 * (1 - smoothstep(0, 170, along) * 0.6);
+      if (along > -5 && along < 170) t -= 2.6 * (1 - smoothstep(fw * 0.6, fw, Math.abs(lat))) * (1 - smoothstep(120, 170, along)) - 1.4 * Math.exp(-(((Math.abs(lat) - fw) / 2.5) ** 2)) * (1 - smoothstep(100, 170, along));
+      t += -3.2 * (1 - smoothstep(0, 22, d)) + 2.6 * Math.exp(-(((d - 26) / 6) ** 2));
       return t;
     }
     case 'ski': return lerp(h, hc + 0.3 * s3.fbm(x / 25, z / 25, 2), 1 - smoothstep(R * 0.7, R + 50, d));
@@ -403,14 +467,14 @@ function carveValleys(data: WorldData) {
     }
   }
   for (const l of LAKES) {
-    const R = l.r + 440;
+    const R = l.r + 1000;   // a broad glacial valley round the lake, not a pit: the roads down to it can follow the ground
     for (let j = Math.max(0, Math.floor((l.z - R + HALF) / CELL)); j <= Math.min(N, Math.ceil((l.z + R + HALF) / CELL)); j++)
       for (let i = Math.max(0, Math.floor((l.x - R + HALF) / CELL)); i <= Math.min(N, Math.ceil((l.x + R + HALF) / CELL)); i++) {
         const x = -HALF + i * CELL, z = -HALF + j * CELL, d = Math.hypot(x - l.x, z - l.z), k = j * V + i;
         if (d > R) continue;
         const o = Math.max(0, d - l.r);
-        const capped = d < l.r ? l.h : clamp(data.height[k], l.h - o * 0.5, l.h + 0.1 + o * (0.1 + 0.32 * smoothstep(0, 90, o)));
-        data.height[k] += (capped - data.height[k]) * (1 - smoothstep(l.r + 300, R, d));   // fade out at the edge: no cliff ring
+        const capped = d < l.r ? l.h : clamp(data.height[k], l.h - o * 0.5, l.h + 0.1 + o * (0.08 + 0.22 * smoothstep(0, 160, o)) + 6 * s3.fbm(x / 90, z / 90, 2) * smoothstep(20, 120, o));
+        data.height[k] += (capped - data.height[k]) * (1 - smoothstep(l.r + 620, R, d));   // fade out at the edge: no cliff ring
       }
   }
 }
