@@ -471,8 +471,9 @@ export class UI {
   raceEnd() { this.toast('Race abandoned', 'warn'); }
   flashCp(n: number, total: number) { if (n < total) this.toast(`Checkpoint ${n}/${total}`, 'cp', 1.5); }
   results(def: RaceDef, place: number, time: number, reward: number, best: boolean, order: { e: { name: string }; finished: number }[]) {
-    const g = this.g;
+    const g = this.g, race = g.race;
     setTimeout(() => {
+      if (!race || g.race !== race) return;   // quit, restarted or teleported away in the meantime
       g.mode = 'results';
       const p = this.openPanel('results small');
       p.innerHTML = `<h2>${place === 1 ? '🏆 VICTORY' : place <= 3 ? 'PODIUM!' : 'FINISHED'}</h2><div class="rbig">${['1ST', '2ND', '3RD'][place - 1] ?? place + 'TH'}</div>
