@@ -7,15 +7,15 @@ import type { VehicleEntity } from './entity';
 import { Music, type Mood } from './music';
 
 interface EngineVoice { on: AudioBufferSourceNode; off: AudioBufferSourceNode; gOn: GainNode; gOff: GainNode; f: BiquadFilterNode; g: GainNode; r0: number; scale: number;
-  rasp: OscillatorNode; sub: OscillatorNode; form: BiquadFilterNode; form2: BiquadFilterNode; rg: GainNode; cyl: number }
+  osc: OscillatorNode; lp: BiquadFilterNode; lp2: BiquadFilterNode; mod: GainNode; cyl: number }
 type Layout = { cyl: number; uneven: number; tone: [number, number]; tau: number; grit: number; scale: number; r0: number };
 const LAYOUTS: Record<string, Layout> = {
-  thumper: { cyl: 1, uneven: 0, tone: [288, 672], tau: 0.014, grit: 0.5, scale: 1, r0: 3000 },
-  flat4: { cyl: 4, uneven: 0.06, tone: [336, 832], tau: 0.006, grit: 0.35, scale: 1, r0: 3000 },
-  v6: { cyl: 6, uneven: 0, tone: [416, 1024], tau: 0.005, grit: 0.25, scale: 1, r0: 3000 },
-  v8: { cyl: 8, uneven: 0.22, tone: [240, 608], tau: 0.007, grit: 0.3, scale: 1, r0: 2500 },
-  diesel: { cyl: 6, uneven: 0.03, tone: [152, 416], tau: 0.011, grit: 0.6, scale: 0.5, r0: 1800 },
-  v12: { cyl: 12, uneven: 0.05, tone: [192, 480], tau: 0.006, grit: 0.45, scale: 0.55, r0: 2000 },
+  thumper: { cyl: 1, uneven: 0, tone: [180, 420], tau: 0.014, grit: 0.5, scale: 1, r0: 3000 },
+  flat4: { cyl: 4, uneven: 0.06, tone: [210, 520], tau: 0.006, grit: 0.35, scale: 1, r0: 3000 },
+  v6: { cyl: 6, uneven: 0, tone: [260, 640], tau: 0.005, grit: 0.25, scale: 1, r0: 3000 },
+  v8: { cyl: 8, uneven: 0.22, tone: [150, 380], tau: 0.007, grit: 0.3, scale: 1, r0: 2500 },
+  diesel: { cyl: 6, uneven: 0.03, tone: [95, 260], tau: 0.011, grit: 0.6, scale: 0.5, r0: 1800 },
+  v12: { cyl: 12, uneven: 0.05, tone: [120, 300], tau: 0.006, grit: 0.45, scale: 0.55, r0: 2000 },
 };
 function layoutOf(d: VehicleDef): string {
   if (d.special === 'bike') return 'thumper';
@@ -103,29 +103,52 @@ export class Audio {
     this.engines.set(name, bufs);
     return bufs;
   }
+  /** Engine-order spectrum for one 4-stroke cycle (fundamental = rpm/120): strong firing orders (every cyl-th harmonic), a
+   *  half-order burble for uneven engines (cross-plane V8 lope) and a little low-order roughness. Random phases keep it from
+   *  sounding like a buzzing pulse train; the timbre comes from fixed filters afterwards, like a real exhaust. */
+  private engineWave(L: Layout) {
+    const N = 256, re = new Float32Array(N), im = new Float32Array(N), half = Math.max(1, L.cyl / 2);
+    for (let k = 1; k < N; k++) {
+      let w = 0;
+      if (k % L.cyl === 0) w += 1 / Math.pow(k / L.cyl, 0.75);
+      else if (L.cyl >= 2 && k % half === 0) w += (0.12 + L.uneven * 1.8) / Math.pow(k / half, 0.9);
+      w += (0.05 + L.uneven * 0.25) / Math.pow(k, 0.6) * (0.5 + Math.random() * 0.5);
+      const ph = Math.random() * Math.PI * 2; re[k] = w * Math.cos(ph); im[k] = w * Math.sin(ph);
+    }
+    return this.ctx!.createPeriodicWave(re, im);
+  }
   private buildEngine(d: VehicleDef) {
     const c = this.ctx!, name = layoutOf(d), L = LAYOUTS[name], [bOn, bOff] = this.engineBuffers(name);
-    if (this.eng) { const old = this.eng; old.g.gain.setTargetAtTime(0, c.currentTime, 0.05); setTimeout(() => { old.on.stop(); old.off.stop(); old.rasp.stop(); old.sub.stop(); old.g.disconnect(); }, 400); }
-    const f = c.createBiquadFilter(); f.type = 'lowpass'; f.Q.value = 0.9;
+    if (this.eng) { const old = this.eng; old.g.gain.setTargetAtTime(0, c.currentTime, 0.05); setTimeout(() => { old.on.stop(); old.off.stop(); old.osc.stop(); old.g.disconnect(); }, 400); }
+    const deep = name === 'diesel' || name === 'v12';
     const g = c.createGain(); g.gain.value = 0;
-    const gOn = c.createGain(), gOff = c.createGain();
+    // main voice: engine orders → two low-passes that open with load (muffled at part throttle, raw on full) → body resonance
+    const osc = c.createOscillator(); osc.setPeriodicWave(this.engineWave(L)); osc.frequency.value = 8;
+    const lp = c.createBiquadFilter(); lp.type = 'lowpass'; lp.Q.value = 0.8; lp.frequency.value = 500;
+    const lp2 = c.createBiquadFilter(); lp2.type = 'lowpass'; lp2.Q.value = 0.5; lp2.frequency.value = 900;
+    const body = c.createBiquadFilter(); body.type = 'peaking'; body.frequency.value = deep ? 90 : 120; body.Q.value = 1; body.gain.value = 2;
+    const chest = c.createBiquadFilter(); chest.type = 'peaking'; chest.frequency.value = deep ? 260 : 340; chest.Q.value = 0.9; chest.gain.value = 4;   // what small speakers can play
+    const hp = c.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = deep ? 35 : 45; hp.Q.value = 0.5;
+    const og = c.createGain(); og.gain.value = 0.9;
+    osc.connect(lp).connect(lp2).connect(body).connect(chest).connect(hp).connect(og).connect(g);
+    // combustion roughness: noise amplitude-modulated by the engine wave itself, so it pulses with the firing
+    const nz = c.createBufferSource(); nz.buffer = this.noiseBuf!; nz.loop = true;
+    const nf = c.createBiquadFilter(); nf.type = 'bandpass'; nf.frequency.value = deep ? 500 : 700; nf.Q.value = 0.6;
+    const ng = c.createGain(); ng.gain.value = 0;
+    const mod = c.createGain(); mod.gain.value = 0.05;
+    osc.connect(mod).connect(ng.gain);
+    nz.connect(nf).connect(ng).connect(g);
+    nz.start(0, Math.random() * 1.5); osc.start();
+    // texture: the pre-rendered firing-pulse loop, quiet and well filtered (cycle-to-cycle variation, mechanical clatter)
+    const f = c.createBiquadFilter(); f.type = 'lowpass'; f.Q.value = 0.7;
+    const gOn = c.createGain(), gOff = c.createGain(), tg = c.createGain(); tg.gain.value = 0.35;
     const on = c.createBufferSource(), off = c.createBufferSource();
     on.buffer = bOn; off.buffer = bOff; on.loop = off.loop = true;
-    const hp = c.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = name === 'diesel' || name === 'v12' ? 45 : 65; hp.Q.value = 0.5;   // nothing useful lives below this
-    on.connect(gOn).connect(f); off.connect(gOff).connect(f); f.connect(hp).connect(g).connect(this.sfx!);
+    on.connect(gOn).connect(f); off.connect(gOff).connect(f); f.connect(tg).connect(g);
     on.start(); off.start(0, bOff.duration * 0.37);
-    // presence layer: a saw at the firing frequency through fixed exhaust/intake formants (these don't move with RPM, like a
-    // real pipe), so the engine is clearly audible on small laptop/phone speakers that can't reproduce the low pulse train
-    const rasp = c.createOscillator(); rasp.type = 'sawtooth';
-    const sub = c.createOscillator(); sub.type = 'square';
-    const form = c.createBiquadFilter(); form.type = 'bandpass'; form.Q.value = 1.1; form.frequency.value = name === 'diesel' ? 520 : name === 'thumper' ? 900 : 700;
-    const form2 = c.createBiquadFilter(); form2.type = 'peaking'; form2.frequency.value = name === 'diesel' ? 1300 : 1900; form2.Q.value = 2; form2.gain.value = 6;
-    const rg = c.createGain(); rg.gain.value = 0;
-    const sg = c.createGain(); sg.gain.value = L.uneven > 0.1 ? 0.6 : 0.3;
-    const rhp = c.createBiquadFilter(); rhp.type = 'highpass'; rhp.frequency.value = 180; rhp.Q.value = 0.7;
-    rasp.connect(form); sub.connect(sg).connect(form); form.connect(rhp).connect(form2).connect(rg).connect(g);
-    rasp.start(); sub.start();
-    this.eng = { on, off, gOn, gOff, f, g, r0: L.r0, scale: L.scale, rasp, sub, form, form2, rg, cyl: L.cyl };
+    g.connect(this.sfx!);
+    const stopOsc = osc.stop.bind(osc); osc.stop = ((w?: number) => { stopOsc(w); nz.stop(w); }) as typeof osc.stop;
+    this.eng = { on, off, gOn, gOff, f, g, r0: L.r0, scale: L.scale, osc, lp, lp2, mod, cyl: L.cyl };
   }
   setVehicle(d: VehicleDef) { const changed = !this.def || layoutOf(this.def) !== layoutOf(d); this.def = d; if (this.ctx && (changed || !this.eng)) this.buildEngine(d); }
   setVolume(v: number) { this.volume = v; if (this.master) this.master.gain.value = v; }
@@ -142,15 +165,16 @@ export class Audio {
       const rate = Math.max(0.25, (v.rpm / E.r0) * E.scale);
       E.on.playbackRate.setTargetAtTime(rate, t, 0.025); E.off.playbackRate.setTargetAtTime(rate, t, 0.025);
       E.gOn.gain.setTargetAtTime(0.15 + 0.85 * thr, t, 0.05); E.gOff.gain.setTargetAtTime(1 - 0.8 * thr, t, 0.05);
-      E.f.frequency.setTargetAtTime(700 + v.rpm * (0.5 + 0.7 * thr), t, 0.05);
-      const fire = Math.max(18, (v.rpm / 60) * E.cyl / 2 * (E.scale < 1 ? 0.6 : 1));
-      E.rasp.frequency.setTargetAtTime(fire, t, 0.03); E.sub.frequency.setTargetAtTime(fire / 2, t, 0.03);
-      E.form.frequency.setTargetAtTime((E.scale < 1 ? 480 : 650) + v.rpm * 0.08 + 250 * thr, t, 0.08);
-      E.rg.gain.setTargetAtTime(1.5 + 0.5 * thr, t, 0.06);
+      E.f.frequency.setTargetAtTime(500 + v.rpm * (0.15 + 0.25 * thr), t, 0.05);
+      const r = v.rpm * E.scale;
+      E.osc.frequency.setTargetAtTime(r / 120, t, 0.03);
+      const open = 480 + r * 0.05 + 1000 * thr;   // load opens the exhaust note; revs alone only a little
+      E.lp.frequency.setTargetAtTime(open, t, 0.06); E.lp2.frequency.setTargetAtTime(open * 1.7, t, 0.06);
+      E.mod.gain.setTargetAtTime(0.02 + 0.09 * thr, t, 0.06);
       if (v.gear !== this.lastGear && v.gear > this.lastGear && v.gear > 1) { this.shiftDip = 0.13; if (d.heavy || e.up.engine >= 4) this.blowoff(); }
       this.lastGear = v.gear;
       this.shiftDip = Math.max(0, this.shiftDip - dt);
-      const vol = active && v.stalled <= 0 ? (0.17 + 0.15 * load) * (this.shiftDip > 0 ? 0.35 : 1) : 0;
+      const vol = active && v.stalled <= 0 ? (0.085 + 0.075 * load) * (this.shiftDip > 0 ? 0.35 : 1) : 0;
       E.g.gain.setTargetAtTime(vol, t, this.shiftDip > 0 ? 0.015 : 0.06);
       // exhaust crackle on a sharp lift at high revs
       if (active && this.lastThrottle > 0.7 && thr < 0.15 && v.rpm > 3600 && !d.heavy) for (let i = 0; i < 3 + Math.floor(Math.random() * 4); i++) setTimeout(() => this.pop(), 40 + i * (50 + Math.random() * 90));

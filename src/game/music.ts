@@ -35,7 +35,8 @@ export class Music {
     const comp = c.createDynamicsCompressor(); comp.threshold.value = -16; comp.ratio.value = 3; comp.attack.value = 0.01; comp.release.value = 0.25;
     this.dry = c.createGain(); this.wet = c.createGain(); this.wet.gain.value = 0.32;
     this.verb = c.createConvolver(); this.verb.buffer = this.impulse(2.6);
-    this.dry.connect(comp); this.wet.connect(this.verb).connect(comp); comp.connect(this.out).connect(dest);
+    this.dry.connect(comp); this.wet.connect(this.verb).connect(comp); const makeup = c.createGain(); makeup.gain.value = 2.4;   // sits level with the engine on laptop speakers
+    comp.connect(makeup).connect(this.out).connect(dest);
     this.section();
   }
   private impulse(sec: number) {
@@ -52,7 +53,7 @@ export class Music {
   private section() {
     const M = MOODS[this.mood], r = rng(this.seed++ * 7919 + this.mood.length * 131);
     const lv = this.mood === 'race' ? 2 + Math.round(r()) : this.mood === 'title' ? 1 : [1, 2, 2, 3, 3][Math.floor(r() * 5)];
-    this.level = this.bar === 0 ? 1 : lv;
+    this.level = this.bar === 0 && this.mood === 'title' ? 1 : Math.max(2, lv);   // the sparse intro level was near-silent on small speakers
     // melody: 2-bar motif in scale steps (null = rest) built from a random walk that leans on chord tones
     let deg = Math.floor(r() * 5);
     this.motif = Array.from({ length: 32 }, (_, i) => {
@@ -143,7 +144,13 @@ export class Music {
     this.env(g, t, 0.008, kind === 'sub' ? 0.22 : 0.13, dur);
     const g2 = c.createGain(); g2.gain.value = 0.6;
     o.connect(f); o2.connect(g2).connect(f); f.connect(g); this.send(g, 0.1);
-    o.start(t); o2.start(t); o.stop(t + dur + 0.05); o2.stop(t + dur + 0.05);
+    // octave-up 'growl' through a fixed mid band so the bass line is heard on speakers with no low end
+    const o3 = c.createOscillator(), f3 = c.createBiquadFilter(), g3 = c.createGain();
+    o3.type = kind === 'sub' ? 'triangle' : 'sawtooth'; o3.frequency.value = freq * 2;
+    f3.type = 'bandpass'; f3.frequency.value = 420; f3.Q.value = 0.8;
+    this.env(g3, t, 0.008, kind === 'sub' ? 0.09 : 0.07, dur);
+    o3.connect(f3).connect(g3); this.send(g3, 0.1);
+    o.start(t); o2.start(t); o3.start(t); o.stop(t + dur + 0.05); o2.stop(t + dur + 0.05); o3.stop(t + dur + 0.05);
   }
   private voice(kind: MoodDef['lead'], freq: number, t: number, dur: number, vol: number, bright: number) {
     const c = this.c, g = c.createGain();
@@ -185,7 +192,7 @@ export class Music {
     o.frequency.setValueAtTime(f0, t); o.frequency.exponentialRampToValueAtTime(f1, t + dec * 0.6);
     this.env(g, t, 0.001, vol, dec); o.connect(g); this.send(g, wet); o.start(t); o.stop(t + dec + 0.05);
   }
-  private kick(t: number, vol = 0.5) { this.tom(t, 150, 42, vol, 0.42, 0); }
+  private kick(t: number, vol = 0.5) { this.tom(t, 150, 42, vol, 0.42, 0); this.hit(t, 'bandpass', 1800, 1.2, vol * 0.35, 0.025, 0); this.tom(t, 320, 180, vol * 0.3, 0.06, 0); }   // + beater click and knock for small speakers
   private snare(t: number, vol = 0.22) { this.hit(t, 'bandpass', 1900, 0.8, vol, 0.18, 0.35); this.tom(t, 240, 170, vol * 0.5, 0.1); }
   private hat(t: number, vol = 0.05, open = false) { this.hit(t, 'highpass', 7500, 0.7, vol, open ? 0.22 : 0.045, 0.1); }
   private drums(kit: MoodDef['kit'], s: number, t: number, lv: number, fill: boolean) {

@@ -144,6 +144,7 @@ export class Game {
   async init(progress: (msg: string, f: number) => void) {
     const params = new URLSearchParams(location.search);
     this.test = params.has('test');
+    if ((this.profile.audioV ?? 0) < 1) { this.profile.audioV = 1; this.profile.musicOn = true; this.profile.musicVol = Math.max(0.55, this.profile.musicVol ?? 0.55); }   // music remix: switch it back on once
     this.audio.volume = Math.max(0.5, this.profile.volume ?? 0.8); this.audio.musicVol = this.profile.musicVol ?? 0.55; this.audio.musicOn = this.profile.musicOn ?? true;
     const q = params.get('quality') as keyof typeof PRESETS | null;
     const saved = this.profile.settingsV === 2 ? this.profile.settings : undefined;
